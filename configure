@@ -11,7 +11,7 @@
 # The following default values are specific to the package.  They can be
 # overwritten by options on the command line.
 cfg_cflags=
-cfg_deplibs= -lcfitsio
+cfg_deplibs="-lcfitsio"
 cfg_ldflags=
 
 # The other values are pretty general.
