@@ -18,9 +18,9 @@ TGT=$(DEFAULT_TGT)
 # ------------------------------------------------ macros for this package
 
 PKG_NAME=yfitsio
-PKG_I=${srcdir}/yfitsio.i
+PKG_I=${srcdir}/fitsio.i
 
-OBJS=yyfitsio.o
+OBJS=yfitsio.o
 
 # change to give the executable a name other than yorick
 PKG_EXENAME=yorick
@@ -28,7 +28,7 @@ PKG_EXENAME=yorick
 PREFIX=/usr/local
 
 # PKG_DEPLIBS=-Lsomedir -lsomelib   for dependencies of this package
-PKG_DEPLIBS=
+PKG_DEPLIBS= -lcfitsio
 # set compiler (or rarely loader) flags specific to this package
 PKG_CFLAGS=
 PKG_LDFLAGS=
@@ -46,7 +46,7 @@ PKG_I_START=
 PKG_I_EXTRA=
 
 RELEASE_FILES = AUTHORS LICENSE.md Makefile NEWS README.md TODO \
-	configure yfitsio.i yyfitsio.c
+	configure fitsio.i yfitsio.c
 RELEASE_NAME = $(PKG_NAME)-$(RELEASE_VERSION).tar.bz2
 
 # -------------------------------- standard targets and rules (in Makepkg)
