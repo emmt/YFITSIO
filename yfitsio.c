@@ -575,19 +575,19 @@ void
 Y_fitsio_get_hdrspace(int argc)
 {
   yfits_object* obj;
-  int keysexist, morekeys, status = 0;
+  int numkeys, morekeys, status = 0;
   long dims[2];
   long* out;
   if (argc != 1) y_error("expecting exactly one argument");
   obj = yfits_fetch(0, TRUE);
   critical(TRUE);
-  if (fits_get_hdrspace(obj->fptr, &keysexist, &morekeys, &status) != 0) {
+  if (fits_get_hdrspace(obj->fptr, &numkeys, &morekeys, &status) != 0) {
     yfits_error(status);
   }
   dims[0] = 1;
   dims[1] = 2;
   out = ypush_l(dims);
-  out[0] = keysexist;
+  out[0] = numkeys;
   out[1] = morekeys;
 }
 

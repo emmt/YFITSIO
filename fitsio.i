@@ -202,6 +202,19 @@ extern fitsio_delete_hdu;
    SEE ALSO: fitsio_open.
  */
 
+extern fitsio_get_hdrspace;
+/* DOCUMENT [numkeys, morekeys] = fitsio_get_hdrspace(fh);
+
+     Return  the number  NUMKEYS of  existing keywords  (not counting  the END
+     keyword) and  the amount MOREKEYS  of space currently available  for more
+     keywords.   It returns  MOREKEYS =  -1  if the  header has  not yet  been
+     closed.  Note  that CFITSIO will  dynamically add space if  required when
+     writing new keywords to a header so  in practice there is no limit to the
+     number of keywords that can be added to a header.
+
+   SEE ALSO: fitsio_open.
+ */
+
 extern fitsio_read_keyword;
 extern fitsio_read_value;
 extern fitsio_read_comment;
