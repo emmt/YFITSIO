@@ -18,6 +18,7 @@
 #include <ctype.h>
 #include <math.h>
 #include <float.h>
+#include <limits.h>
 
 #include <fitsio.h>
 
@@ -47,7 +48,7 @@ static void critical(int clear_errmsg);
 /* Define a Yorick global symbol with an int value. */
 static void define_int_const(const char* name, int value);
 
-
+static int yfits_debug = FALSE;
 static void yfits_error(int status);
 
 /* Operations implementing the behavior of a FITS object. */
@@ -61,14 +62,21 @@ typedef struct _yfits_object yfits_object;
 static yfits_object* yfits_push(void);
 static yfits_object* yfits_fetch(int iarg, int assert_open);
 
+static const char* hdu_type_name(int type);
+
+/* A static buffer for error messages, file names, etc. */
+static char buffer[32*1024];
 
 static void
 yfits_error(int status)
 {
-  char reason[31];
-  fits_report_error(stderr, status);
-  fits_get_errstatus(status, reason);
-  y_error(reason);
+  if (yfits_debug) {
+    fits_report_error(stderr, status);
+  } else {
+    fits_clear_errmsg();
+  }
+  fits_get_errstatus(status, buffer);
+  y_error(buffer);
 }
 
 /* FITS handle instance. */
@@ -97,24 +105,12 @@ yfits_free(void* ptr)
   }
 }
 
-static const char*
-hdu_type_name(int type)
-{
-  switch (type) {
-  case IMAGE_HDU:  return "image";
-  case BINARY_TBL: return "binary table";
-  case ASCII_TBL:  return "ascii table";
-  default:         return "unknown HDU type";
-  }
-}
-
 static void
 yfits_print(void* ptr)
 {
   yfits_object* obj = (yfits_object*)ptr;
   fitsfile *fptr = obj->fptr;
   int number, status = 0;
-  char buf[100];
 
   critical(TRUE);
   if (fptr != NULL) {
@@ -122,8 +118,8 @@ yfits_print(void* ptr)
   } else {
     number = 0;
   }
-  sprintf(buf, "%s with %d HDU", yfits_type.type_name, number);
-  y_print(buf, TRUE);
+  sprintf(buffer, "%s with %d HDU", yfits_type.type_name, number);
+  y_print(buffer, TRUE);
   if (number >= 1) {
     int hdu0, hdu, type;
     fits_get_hdu_num(fptr, &hdu0);
@@ -133,8 +129,8 @@ yfits_print(void* ptr)
         status = 0;
         break;
       }
-      sprintf(buf, "  HDU[%d] = %s", hdu, hdu_type_name(type));
-      y_print(buf, TRUE);
+      sprintf(buffer, "  HDU[%d] = %s", hdu, hdu_type_name(type));
+      y_print(buffer, TRUE);
     }
     if (fits_movabs_hdu(fptr, hdu0, &type, &status) != 0) {
       fits_report_error(stderr, status);
@@ -308,14 +304,78 @@ void
 Y_fitsio_is_open(int argc)
 {
   if (argc != 1) y_error("expecting exactly one argument");
-  ypush_int(yfits_fetch(0, FALSE)->fptr != NULL ? 1 : 0);
+  ypush_int(yfits_fetch(0, FALSE)->fptr != NULL ? TRUE : FALSE);
 }
 
 void
 Y_fitsio_is_handle(int argc)
 {
   if (argc != 1) y_error("expecting exactly one argument");
-  ypush_int((char*)yget_obj(0, NULL) == yfits_type.type_name ? 1 : 0);
+  ypush_int((char*)yget_obj(0, NULL) == yfits_type.type_name ? TRUE : FALSE);
+}
+
+void
+Y_fitsio_file_name(int argc)
+{
+  yfits_object* obj;
+  char* name;
+  int status = 0;
+
+  if (argc != 1) y_error("expecting exactly one argument");
+  obj = yfits_fetch(0, FALSE);
+  if (obj->fptr == NULL) {
+    name = NULL;
+  } else {
+    name = buffer;
+    critical(TRUE);
+    if (fits_file_name(obj->fptr, name, &status) != 0) {
+      yfits_error(status);
+    }
+  }
+  push_string(name);
+}
+
+void
+Y_fitsio_file_mode(int argc)
+{
+  yfits_object* obj;
+  const char* mode = NULL;
+  if (argc != 1) y_error("expecting exactly one argument");
+  obj = yfits_fetch(0, FALSE);
+  if (obj->fptr != NULL) {
+    int iomode, status = 0;
+    critical(TRUE);
+    if (fits_file_mode(obj->fptr, &iomode, &status) != 0) {
+      yfits_error(status);
+    }
+    if (iomode == READONLY) {
+      mode = "r";
+    } else if (iomode == READWRITE) {
+      mode = "rw";
+    }
+  }
+  push_string(mode);
+}
+
+void
+Y_fitsio_url_type(int argc)
+{
+  yfits_object* obj;
+  char* url;
+  int status = 0;
+
+  if (argc != 1) y_error("expecting exactly one argument");
+  obj = yfits_fetch(0, FALSE);
+  if (obj->fptr == NULL) {
+    url = NULL;
+  } else {
+    url = buffer;
+    critical(TRUE);
+    if (fits_url_type(obj->fptr, url, &status) != 0) {
+      yfits_error(status);
+    }
+  }
+  push_string(url);
 }
 
 void
@@ -331,7 +391,10 @@ Y_fitsio_movabs_hdu(int argc)
   if (number <= 0) y_error("invalid HDU number");
   critical(TRUE);
   if (fits_movabs_hdu(obj->fptr, number, &type, &status) != 0) {
-    yfits_error(status);
+    if (status != BAD_HDU_NUM || yarg_subroutine()) {
+      yfits_error(status);
+    }
+    type = -1;
   }
   ypush_int(type);
 }
@@ -348,7 +411,10 @@ Y_fitsio_movrel_hdu(int argc)
   offset = fetch_int(0);
   critical(TRUE);
   if (fits_movrel_hdu(obj->fptr, offset, &type, &status) != 0) {
-    yfits_error(status);
+    if (status != BAD_HDU_NUM || yarg_subroutine()) {
+      yfits_error(status);
+    }
+    type = -1;
   }
   ypush_int(type);
 }
@@ -366,11 +432,20 @@ Y_fitsio_movnam_hdu(int argc)
   type = fetch_int(argc - 2);
   extname = ygets_q(argc - 3);
   extver = (argc >= 4 ? fetch_int(argc - 4) : 0);
+  if (type != IMAGE_HDU && type != BINARY_TBL &&
+      type != ASCII_TBL && type != ANY_HDU) {
+    y_error("bad HDUTYPE");
+  }
   critical(TRUE);
   if (fits_movnam_hdu(obj->fptr, type, extname, extver, &status) != 0) {
+    if (status != BAD_HDU_NUM || yarg_subroutine()) {
+      yfits_error(status);
+    }
+    type = -1;
+  } else if (fits_get_hdu_type(obj->fptr, &type, &status) != 0) {
     yfits_error(status);
   }
-  yarg_drop(argc - 1);
+  ypush_int(type);
 }
 
 void
@@ -427,6 +502,333 @@ Y_fitsio_get_hdu_type(int argc)
 }
 
 void
+Y_fitsio_copy_file(int argc)
+{
+  yfits_object* inp;
+  yfits_object* out;
+  int previous, current, following;
+  int status = 0;
+
+  if (argc != 5) y_error("expecting exactly 5 arguments");
+  inp = yfits_fetch(argc - 1, TRUE);
+  out = yfits_fetch(argc - 2, TRUE);
+  previous = yarg_true(argc - 3);
+  current = yarg_true(argc - 4);
+  following = yarg_true(argc - 5);
+  critical(TRUE);
+  if (fits_copy_file(inp->fptr, out->fptr, previous, current,
+                     following, &status) != 0) {
+    yfits_error(status);
+  }
+  yarg_drop(3); /* left output object on top of stack */
+}
+
+void
+Y_fitsio_copy_hdu(int argc)
+{
+  yfits_object* inp;
+  yfits_object* out;
+  int morekeys, status = 0;
+  if (argc < 2 || argc > 3) y_error("expecting 2 or 3 arguments");
+  inp = yfits_fetch(argc - 1, TRUE);
+  out = yfits_fetch(argc - 2, TRUE);
+  morekeys = (argc >= 3 ? fetch_int(argc - 3) : 0);
+  critical(TRUE);
+  if (fits_copy_hdu(inp->fptr, out->fptr, morekeys, &status) != 0) {
+    yfits_error(status);
+  }
+  if (argc > 2) yarg_drop(argc - 2); /* left output object on top of stack */
+}
+
+/* missing: fits_write_hdu */
+
+void
+Y_fitsio_copy_header(int argc)
+{
+  yfits_object* inp;
+  yfits_object* out;
+  int status = 0;
+  if (argc != 2) y_error("expecting exactly 2 arguments");
+  inp = yfits_fetch(argc - 1, TRUE);
+  out = yfits_fetch(argc - 2, TRUE);
+  critical(TRUE);
+  if (fits_copy_header(inp->fptr, out->fptr, &status) != 0) {
+    yfits_error(status);
+  }
+}
+
+void
+Y_fitsio_delete_hdu(int argc)
+{
+  yfits_object* obj;
+  int type, status = 0;
+  if (argc != 1) y_error("expecting exactly one argument");
+  obj = yfits_fetch(0, TRUE);
+  critical(TRUE);
+  if (fits_delete_hdu(obj->fptr, &type, &status) != 0) {
+    yfits_error(status);
+  }
+  ypush_int(type);
+}
+
+void
+Y_fitsio_get_hdrspace(int argc)
+{
+  yfits_object* obj;
+  int keysexist, morekeys, status = 0;
+  long dims[2];
+  long* out;
+  if (argc != 1) y_error("expecting exactly one argument");
+  obj = yfits_fetch(0, TRUE);
+  critical(TRUE);
+  if (fits_get_hdrspace(obj->fptr, &keysexist, &morekeys, &status) != 0) {
+    yfits_error(status);
+  }
+  dims[0] = 1;
+  dims[1] = 2;
+  out = ypush_l(dims);
+  out[0] = keysexist;
+  out[1] = morekeys;
+}
+
+void
+Y_fitsio_read_keyword(int argc)
+{
+  yfits_object* obj;
+  char* key;
+  char* value;
+  int len, status = 0;
+
+  /* Fetch textual value. */
+  if (argc != 2) y_error("expecting exactly 2 arguments");
+  obj = yfits_fetch(argc - 1, TRUE);
+  key = ygets_q(argc - 2);
+  critical(TRUE);
+  if (fits_read_keyword(obj->fptr, key, buffer, NULL, &status) != 0) {
+    if (status == KEY_NO_EXIST) {
+      ypush_nil();
+      return;
+    }
+    if (status == VALUE_UNDEFINED) {
+      fprintf(stderr, "undefined value for \"%s\"\n", key);
+      push_string(NULL);
+      return;
+    }
+    yfits_error(status);
+  }
+
+  /* Trim leading and trailing spaces and push it on top of the stack. */
+  value = buffer;
+  while (value[0] == ' ') {
+    ++value;
+  }
+  len = strlen(value);
+  while (len > 1 && value[len-1] == ' ') {
+    --len;
+  }
+  value[len] = '\0';
+  push_string(value);
+}
+
+void
+Y_fitsio_read_value(int argc)
+{
+  yfits_object* obj;
+  char* key;
+  char* value;
+  char* end;
+  int len, status = 0;
+  double dval;
+  long lval;
+  double* z;
+
+  if (argc < 2 || argc > 3) y_error("expecting 2 or 3 arguments");
+  obj = yfits_fetch(argc - 1, TRUE);
+  key = ygets_q(argc - 2);
+  critical(TRUE);
+  if (fits_read_keyword(obj->fptr, key, buffer, NULL, &status) != 0) {
+    if (status == KEY_NO_EXIST) {
+      /* Keyword not found, return default value if any. */
+      if (argc < 3) ypush_nil();
+      return;
+    }
+    if (status == VALUE_UNDEFINED) {
+      fprintf(stderr, "undefined value for \"%s\"\n", key);
+      push_string(NULL);
+      return;
+    }
+    yfits_error(status);
+  }
+  /* Trim leading and trailing spaces. */
+  value = buffer;
+  while (value[0] == ' ') {
+    ++value;
+  }
+  len = strlen(value);
+  while (len > 1 && value[len-1] == ' ') {
+    --len;
+  }
+  value[len] = '\0';
+
+  /* Guess value type. */
+  switch (value[0]) {
+  case '\0':
+    ypush_nil();
+    return;
+  case 'T':
+  case 't':
+    if (len != 1) break;
+    ypush_int(TRUE);
+    return;
+  case 'F':
+  case 'f':
+    if (len != 1) break;
+    ypush_int(FALSE);
+    return;
+  case '\'':
+    /* String value (trim trailing spaces). */
+    if (len < 2 || value[len-1] != '\'') break;
+    if (fits_read_key(obj->fptr, TSTRING, key, value, NULL, &status) != 0) {
+      yfits_error(status);
+    }
+    len = strlen(value);
+    while (len > 1 && value[len-1] == ' ') {
+      --len;
+    }
+    value[len] = '\0';
+    push_string(value);
+    return;
+  default:
+    /* Try to read a single integer. */
+    lval = strtol(value, &end, 10);
+    if (*end == '\0') {
+      ypush_long(lval);
+      return;
+    }
+    if (end != value) {
+      /* Try to read a single real. */
+      dval = strtod(value, &end);
+      if (*end == '\0') {
+        ypush_double(dval);
+        return;
+      }
+      if (end != value) {
+        /* Must be a complex (or an error). */
+        z = ypush_z(NULL);
+        z[0] = dval;
+        value = end;
+        z[1] = strtod(value, &end);
+        if (*end == '\0') return;
+      }
+    }
+  }
+  y_error("invalid keyword value");
+}
+
+void
+Y_fitsio_read_comment(int argc)
+{
+  yfits_object* obj;
+  char* key;
+  char *comment;
+  char value[81];
+  int len, status = 0;
+  if (argc != 2) y_error("expecting exactly 2 arguments");
+  obj = yfits_fetch(argc - 1, TRUE);
+  key = ygets_q(argc - 2);
+  critical(TRUE);
+  if (fits_read_keyword(obj->fptr, key, value, buffer, &status) != 0) {
+    if (status == KEY_NO_EXIST || status == VALUE_UNDEFINED) {
+      /* Keyword not found or value undefined, return nothing. */
+      ypush_nil();
+      return;
+    }
+    yfits_error(status);
+  }
+  /* Trim leading and trailing spaces. */
+  comment = buffer;
+  while (comment[0] == ' ') {
+    ++comment;
+  }
+  len = strlen(comment);
+  while (len > 1 && comment[len-1] == ' ') {
+    --len;
+  }
+  comment[len] = '\0';
+  push_string(comment);
+}
+
+void
+Y_fitsio_read_card(int argc)
+{
+  yfits_object* obj;
+  char *key;
+  int status = 0;
+  if (argc != 2) y_error("expecting exactly 2 arguments");
+  obj = yfits_fetch(argc - 1, TRUE);
+  key = ygets_q(argc - 2);
+  critical(TRUE);
+  if (fits_read_card(obj->fptr, key, buffer, &status) != 0) {
+    if (status == KEY_NO_EXIST || status == VALUE_UNDEFINED) {
+      ypush_nil();
+      return;
+    }
+    yfits_error(status);
+  }
+  push_string(buffer);
+}
+
+void
+Y_fitsio_read_str(int argc)
+{
+  yfits_object* obj;
+  char *str;
+  int status = 0;
+  if (argc != 2) y_error("expecting exactly 2 arguments");
+  obj = yfits_fetch(argc - 1, TRUE);
+  str = ygets_q(argc - 2);
+  critical(TRUE);
+  if (fits_read_str(obj->fptr, str, buffer, &status) != 0) {
+    if (status == KEY_NO_EXIST || status == VALUE_UNDEFINED) {
+      ypush_nil();
+      return;
+    }
+    yfits_error(status);
+  }
+  push_string(buffer);
+}
+
+void
+Y_fitsio_read_record(int argc)
+{
+  yfits_object* obj;
+  int num, status = 0;
+  if (argc != 2) y_error("expecting exactly 2 arguments");
+  obj = yfits_fetch(argc - 1, TRUE);
+  num = fetch_int(argc - 2);
+  critical(TRUE);
+  if (fits_read_record(obj->fptr, num, buffer, &status) != 0) {
+    if (status == KEY_NO_EXIST || status == VALUE_UNDEFINED) {
+      ypush_nil();
+      return;
+    }
+    yfits_error(status);
+  }
+  push_string(buffer);
+}
+
+void
+Y_fitsio_debug(int argc)
+{
+  int new_value, old_value;
+  if (argc != 1) y_error("expecting exactly one argument");
+  new_value = yarg_true(0);
+  old_value = yfits_debug;
+  yfits_debug = new_value;
+  ypush_int(old_value);
+}
+
+void
 Y_fitsio_init(int argc)
 {
   /* Define constants. */
@@ -454,6 +856,17 @@ yfits_fetch(int iarg, int assert_open)
   yfits_object* obj = (yfits_object*)yget_obj(iarg, &yfits_type);
   if (assert_open && obj->fptr == NULL) y_error("FITS file has been closed");
   return obj;
+}
+
+static const char*
+hdu_type_name(int type)
+{
+  switch (type) {
+  case IMAGE_HDU:  return "image";
+  case BINARY_TBL: return "binary table";
+  case ASCII_TBL:  return "ascii table";
+  default:         return "unknown HDU type";
+  }
 }
 
 
