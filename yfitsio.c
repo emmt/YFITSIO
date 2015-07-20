@@ -818,6 +818,34 @@ Y_fitsio_read_record(int argc)
 }
 
 void
+Y_fitsio_get_img_type(int argc)
+{
+  yfits_object* obj;
+  int bitpix, status = 0;
+  if (argc != 1) y_error("expecting exactly one argument");
+  obj = yfits_fetch(0, TRUE);
+  critical(TRUE);
+  if (fits_get_img_type(obj->fptr, &bitpix, &status) != 0) {
+    yfits_error(status);
+  }
+  ypush_int(bitpix);
+}
+
+void
+Y_fitsio_get_img_equivtype(int argc)
+{
+  yfits_object* obj;
+  int bitpix, status = 0;
+  if (argc != 1) y_error("expecting exactly one argument");
+  obj = yfits_fetch(0, TRUE);
+  critical(TRUE);
+  if (fits_get_img_equivtype(obj->fptr, &bitpix, &status) != 0) {
+    yfits_error(status);
+  }
+  ypush_int(bitpix);
+}
+
+void
 Y_fitsio_debug(int argc)
 {
   int new_value, old_value;
@@ -837,6 +865,15 @@ Y_fitsio_init(int argc)
   DEFINE_INT_CONST(ASCII_TBL);
   DEFINE_INT_CONST(BINARY_TBL);
   DEFINE_INT_CONST(ANY_HDU);
+  DEFINE_INT_CONST(BYTE_IMG);
+  DEFINE_INT_CONST(SHORT_IMG);
+  DEFINE_INT_CONST(LONG_IMG);
+  DEFINE_INT_CONST(LONGLONG_IMG);
+  DEFINE_INT_CONST(FLOAT_IMG);
+  DEFINE_INT_CONST(DOUBLE_IMG);
+  DEFINE_INT_CONST(SBYTE_IMG);
+  DEFINE_INT_CONST(USHORT_IMG);
+  DEFINE_INT_CONST(ULONG_IMG);
 #undef DEFINE_INT_CONST
   ypush_nil();
 }

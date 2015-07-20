@@ -274,6 +274,46 @@ extern fitsio_read_record;
    SEE ALSO:
  */
 
+
+local FITSIO_BYTE_IMG, FITSIO_SHORT_IMG, FITSIO_LONG_IMG;
+local FITSIO_LONGLONG_IMG, FITSIO_FLOAT_IMG, FITSIO_DOUBLE_IMG;
+local FITSIO_SBYTE_IMG, FITSIO_USHORT_IMG, FITSIO_ULONG_IMG;
+extern fitsio_get_img_type;
+extern fitsio_get_img_equivtype;
+/* DOCUMENT bitpix = fitsio_get_img_type(fh);
+         or bitpix = fitsio_get_img_equivtype(fh);
+
+     Get  the data  type or  equivalent  data type  of the  image.  The  first
+     routine returns the physical data type of the FITS image, as given by the
+     BITPIX keyword, with allowed values of 8, 16, 32, 64, -32, -64 (see table
+     below).  The  second routine is similar,  except that if the  image pixel
+     values  are scaled,  with non-default  values  for the  BZERO and  BSCALE
+     keywords, then the routine will return the ’equivalent’ data type that is
+     needed  to store  the scaled  values.  For  example, if  BITPIX =  16 and
+     BSCALE  =  0.1  then  the   equivalent  data  type  is  FITSIO_FLOAT_IMG.
+     Similarly if  BITPIX = 16, BSCALE  = 1, and  BZERO = 32768, then  the the
+     pixel values span the range of an unsigned short integer and the returned
+     data type will be CFITSIO_USHORT_IMG.
+
+     ---------------------------------------------------------
+     Constant            Value      Description
+     ---------------------------------------------------------
+     FITSIO_BYTE_IMG        8      8-bit unsigned integer
+     FITSIO_SHORT_IMG      16     16-bit signed integer
+     FITSIO_LONG_IMG       32     32-bit signed integer
+     FITSIO_LONGLONG_IMG   64     64-bit signed integer
+     FITSIO_FLOAT_IMG     -32     32-bit floating point
+     FITSIO_DOUBLE_IMG    -64     64-bit floating point
+     FITSIO_SBYTE_IMG      10      8-bit signed integer (*)
+     FITSIO_USHORT_IMG     20     16-bit unsigned integer (*)
+     FITSIO_ULONG_IMG      40     32-bit unsigned integer (*)
+     ---------------------------------------------------------
+     (*) non standard values
+
+
+   SEE ALSO: fitsio_open.
+ */
+
 extern fitsio_debug;
 /* DOCUMENT oldval = fitsio_debug(newval);
      Set the verbosity of error messages and return the former setting.
