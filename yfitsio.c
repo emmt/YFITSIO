@@ -45,6 +45,13 @@ static char* fetch_path(int iarg);
 static int fetch_int(int iarg);
 static void critical(int clear_errmsg);
 
+/* Retrieve dimension list from arguments of the stack.  IARG_FIRST is the
+   first stack element to consider, IARG_LAST is the last one (inclusive and
+   such that IARG_FIRST >= IARG_LAST).  MAXDIMS is the maximum number of
+   dimensions, DIMS is an array of at least MAXDIMS+1 elements. */
+static void get_dimlist(int iarg_first, int iarg_last,
+                        long* dims, int maxdims);
+
 /* Define a Yorick global symbol with an int value. */
 static void define_int_const(const char* name, int value);
 
@@ -878,6 +885,24 @@ Y_fitsio_get_img_size(int argc)
   }
 }
 
+
+void
+Y_fitsio_create_img(int argc)
+{
+  yfits_object* obj;
+  long dims[100];
+  int bitpix, status = 0;
+  if (argc < 2) y_error("not enough arguments");
+  obj = yfits_fetch(argc - 1, TRUE);
+  bitpix = fetch_int(argc - 2);
+  get_dimlist(argc - 3, 0, dims, 99);
+  critical(TRUE);
+  if (fits_create_img(obj->fptr, bitpix, dims[0], &dims[1], &status) != 0) {
+    yfits_error(status);
+  }
+  yarg_drop(argc - 1);
+}
+
 void
 Y_fitsio_copy_image_section(int argc)
 {
@@ -1004,6 +1029,51 @@ fetch_path(int iarg)
   yarg_swap(iarg + 1, 0);
   yarg_drop(1);
   return arr[0];
+}
+
+static void
+get_dimlist(int iarg_first, int iarg_last,
+            long* dims, int maxdims)
+{
+  int iarg, rank, type, ndims = 0, k;
+  for (iarg = iarg_first; iarg >= iarg_last; --iarg) {
+    type = yarg_typeid(iarg);
+    if (type == Y_VOID) {
+      continue;
+    }
+    if (type > Y_LONG) {
+      y_error("bad type for dimension");
+    }
+    rank = yarg_rank(iarg);
+    if (rank == 0) {
+      /* scalar */
+      if (ndims >= maxdims) {
+         y_error("too many dimensions");
+      }
+      dims[++ndims] = ygets_l(iarg);
+    } else if (rank == 1) {
+      /* vector */
+      long i, ntot;
+      long* dimlist = ygeta_l(iarg, &ntot, NULL);
+      if (ntot < 1 || dimlist[0] != ntot - 1) {
+        y_error("bad dimension list");
+      }
+      if (ndims +  ntot - 1 > maxdims) {
+         y_error("too many dimensions");
+      }
+      for (i = 1; i < ntot; ++i) {
+        dims[++ndims] = dimlist[i];
+      }
+    } else {
+      y_error("bad dimension list");
+    }
+  }
+  for (k = 1; k <= ndims; ++k) {
+    if (dims[k] < 1) {
+      y_error("bad dimension");
+    }
+  }
+  dims[0] = ndims;
 }
 
 /*

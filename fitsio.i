@@ -316,7 +316,7 @@ extern fitsio_get_img_equivtype;
 
 extern fitsio_get_img_dim;
 extern fitsio_get_img_size;
-/* DOCUMENT rank = fitsio_get_img_dim(fh);
+/* DOCUMENT naxis = fitsio_get_img_dim(fh);
          or size = fitsio_get_img_size(fh);
 
      Get the  number of dimensions, and/or  the size of each  dimension in the
@@ -324,6 +324,20 @@ extern fitsio_get_img_size;
      and the size of each dimension is given by the NAXISn keywords.
 
    SEE ALSO: fitsio_open, fitsio_get_img_type.
+ */
+
+extern fitsio_create_img;
+/* DOCUMENT fitsio_create_img, fh, bitpix, dims, ...;
+
+     Create a new primary array or  IMAGE extension with a specified data type
+     and size.  If  the FITS file is  currently empty then a  primary array is
+     created,  otherwise  a new  IMAGE  extension  is  appended to  the  file.
+     Remaining arguments  DIMS, ... form the  dimension list of the  image and
+     can take any of the form accepted by Yorick array() function.
+
+     When called as a function, FH is returned.
+
+   SEE ALSO: fitsio_create, dimsof, array.
  */
 
 extern fitsio_copy_image_section;
