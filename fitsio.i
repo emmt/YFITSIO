@@ -326,6 +326,22 @@ extern fitsio_get_img_size;
    SEE ALSO: fitsio_open, fitsio_get_img_type.
  */
 
+extern fitsio_copy_image_section;
+/* DOCUMENT fitsio_copy_image_section, inp, out, section;
+
+     Copy a rectangular section of an image and write it to a new FITS primary
+     image or image  extension.  The new image  HDU is appended to  the end of
+     the output file; all the keywords in the input image (current HDU of FITS
+     handle  INP) will  be copied  to the  output image  (current HDU  of FITS
+     handle OUT).   The common WCS  keywords will  be updated if  necessary to
+     correspond to the coordinates of the  section.  The format of the section
+     expression is same as specifying an image section using the extended file
+     name  syntax   (see  CFISIO  documentation).    Examples:  "1:100,1:200",
+     "1:100:2, 1:*:2", "*, -*".
+
+   SEE ALSO: fitsio_open.
+ */
+
 extern fitsio_debug;
 /* DOCUMENT oldval = fitsio_debug(newval);
      Set the verbosity of error messages and return the former setting.

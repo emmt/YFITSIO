@@ -864,7 +864,6 @@ Y_fitsio_get_img_size(int argc)
 {
   yfits_object* obj;
   long dims[2];
-  long* naxes;
   int naxis, status = 0;
   if (argc != 1) y_error("expecting exactly one argument");
   obj = yfits_fetch(0, TRUE);
@@ -877,6 +876,24 @@ Y_fitsio_get_img_size(int argc)
   if (fits_get_img_size(obj->fptr, naxis, ypush_l(dims), &status) != 0) {
     yfits_error(status);
   }
+}
+
+void
+Y_fitsio_copy_image_section(int argc)
+{
+  yfits_object* inp;
+  yfits_object* out;
+  char* section;
+  int status = 0;
+  if (argc != 3) y_error("expecting exactly 3 arguments");
+  inp = yfits_fetch(2, TRUE);
+  out = yfits_fetch(1, TRUE);
+  section = ygets_q(0);
+  critical(TRUE);
+  if (fits_copy_image_section(inp->fptr, out->fptr, section, &status) != 0) {
+    yfits_error(status);
+  }
+  yarg_drop(1); /* left output on top of stack */
 }
 
 void
