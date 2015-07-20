@@ -846,6 +846,40 @@ Y_fitsio_get_img_equivtype(int argc)
 }
 
 void
+Y_fitsio_get_img_dim(int argc)
+{
+  yfits_object* obj;
+  int naxis, status = 0;
+  if (argc != 1) y_error("expecting exactly one argument");
+  obj = yfits_fetch(0, TRUE);
+  critical(TRUE);
+  if (fits_get_img_dim(obj->fptr, &naxis, &status) != 0) {
+    yfits_error(status);
+  }
+  ypush_int(naxis);
+}
+
+void
+Y_fitsio_get_img_size(int argc)
+{
+  yfits_object* obj;
+  long dims[2];
+  long* naxes;
+  int naxis, status = 0;
+  if (argc != 1) y_error("expecting exactly one argument");
+  obj = yfits_fetch(0, TRUE);
+  critical(TRUE);
+  if (fits_get_img_dim(obj->fptr, &naxis, &status) != 0) {
+    yfits_error(status);
+  }
+  dims[0] = 1;
+  dims[1] = naxis;
+  if (fits_get_img_size(obj->fptr, naxis, ypush_l(dims), &status) != 0) {
+    yfits_error(status);
+  }
+}
+
+void
 Y_fitsio_debug(int argc)
 {
   int new_value, old_value;

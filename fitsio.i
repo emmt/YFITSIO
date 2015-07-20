@@ -311,7 +311,19 @@ extern fitsio_get_img_equivtype;
      (*) non standard values
 
 
-   SEE ALSO: fitsio_open.
+   SEE ALSO: fitsio_open, fitsio_get_img_size.
+ */
+
+extern fitsio_get_img_dim;
+extern fitsio_get_img_size;
+/* DOCUMENT rank = fitsio_get_img_dim(fh);
+         or size = fitsio_get_img_size(fh);
+
+     Get the  number of dimensions, and/or  the size of each  dimension in the
+     image.  The number  of axes in the  image is given by  the NAXIS keyword,
+     and the size of each dimension is given by the NAXISn keywords.
+
+   SEE ALSO: fitsio_open, fitsio_get_img_type.
  */
 
 extern fitsio_debug;
