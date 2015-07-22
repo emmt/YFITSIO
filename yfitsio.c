@@ -79,6 +79,12 @@ static int
 get_image_param(yfits_object* fh, int maxdims, int* bitpix, int* naxis,
                 long dims[], long* number, int* status);
 
+/* Fast indexes to common keywords. */
+static long index_basic = -1L;
+static long index_null = -1L;
+static long index_number = -1L;
+static long index_offset = -1L;
+
 /* A static buffer for error messages, file names, etc. */
 static char buffer[32*1024];
 
@@ -166,22 +172,6 @@ yfits_extract(void* ptr, char* name)
   ypush_nil();
 }
 
-static long index_extended = -1L;
-static long index_null = -1L;
-static long index_number = -1L;
-static long index_offset = -1L;
-
-static void
-initialize_indexes()
-{
-#define INIT(s) if (index_##s == -1L) index_##s = yget_global(#s, 0)
-  INIT(extended);
-  INIT(null);
-  INIT(number);
-  INIT(offset);
-#undef INIT
-}
-
 /* Open an existing data file. */
 void
 Y_fitsio_open_file(int argc)
@@ -189,12 +179,10 @@ Y_fitsio_open_file(int argc)
   yfits_object* obj;
   char* path = NULL;
   char* mode = NULL;
-  int extended = FALSE; /* use extended file name syntax? */
+  int basic = FALSE; /* use basic file name syntax? */
   int status = 0;
   int iomode = 0;
   int iarg;
-
-  if (index_extended == -1L) initialize_indexes();
 
   /* First parse template keyword. */
   for (iarg = argc - 1; iarg >= 0; --iarg) {
@@ -211,8 +199,8 @@ Y_fitsio_open_file(int argc)
     } else {
       /* Keyword argument. */
       --iarg;
-      if (index == index_extended) {
-        extended = yarg_true(iarg);
+      if (index == index_basic) {
+        basic = yarg_true(iarg);
       } else {
         y_error("unsupported keyword");
       }
@@ -229,10 +217,10 @@ Y_fitsio_open_file(int argc)
 
   obj = yfits_push();
   critical(TRUE);
-  if (extended) {
-    fits_open_file(&obj->fptr, path, iomode, &status);
-  } else {
+  if (basic) {
     fits_open_diskfile(&obj->fptr, path, iomode, &status);
+  } else {
+    fits_open_file(&obj->fptr, path, iomode, &status);
   }
   if (status) yfits_error(status);
 }
@@ -243,11 +231,9 @@ Y_fitsio_create_file(int argc)
 {
   yfits_object* obj;
   char* path = NULL;
-  int extended = FALSE; /* use extended file name syntax? */
+  int basic = FALSE; /* use basic file name syntax? */
   int status = 0;
   int iarg;
-
-  if (index_extended == -1L) initialize_indexes();
 
   /* First parse template keyword. */
   for (iarg = argc - 1; iarg >= 0; --iarg) {
@@ -262,8 +248,8 @@ Y_fitsio_create_file(int argc)
     } else {
       /* Keyword argument. */
       --iarg;
-      if (index == index_extended) {
-        extended = yarg_true(iarg);
+      if (index == index_basic) {
+        basic = yarg_true(iarg);
       } else {
         y_error("unsupported keyword");
       }
@@ -273,10 +259,10 @@ Y_fitsio_create_file(int argc)
 
   obj = yfits_push();
   critical(TRUE);
-  if (extended) {
-    fits_create_file(&obj->fptr, path, &status);
-  } else {
+  if (basic) {
     fits_create_diskfile(&obj->fptr, path, &status);
+  } else {
+    fits_create_file(&obj->fptr, path, &status);
   }
   if (status != 0) yfits_error(status);
 }
@@ -1147,6 +1133,14 @@ Y_fitsio_init(int argc)
   DEFINE_INT_CONST(ULONG_IMG);
 #undef DEFINE_INT_CONST
   ypush_nil();
+
+  /* Define fast keyword/member indexes. */
+#define INIT(s) if (index_##s == -1L) index_##s = yget_global(#s, 0)
+  INIT(basic);
+  INIT(null);
+  INIT(number);
+  INIT(offset);
+#undef INIT
 }
 
 /*---------------------------------------------------------------------------*/

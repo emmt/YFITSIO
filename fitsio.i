@@ -24,8 +24,8 @@ extern fitsio_open_file;
       The opened file is automatically closed  when FH is no longer referenced
       (thus there is no needs to use fitsio_close).
 
-      Keyword EXTENDED can be set true to use the extended file name syntax to
-      interpret PATH (see CFITSIO documentation).
+      Keyword BASIC can be  set true to not use the  extended file name syntax
+      to interpret PATH (see CFITSIO documentation).
 
    SEE ALSO: fitsio_close, fitsio_create_file.
  */
@@ -41,8 +41,8 @@ extern fitsio_create_file;
       The opened file is automatically closed  when FH is no longer referenced
       (thus there is no needs to use fitsio_close).
 
-      Keyword EXTENDED can be set true to use the extended file name syntax to
-      interpret PATH (see CFITSIO documentation).
+      Keyword BASIC can be  set true to not use the  extended file name syntax
+      to interpret PATH (see CFITSIO documentation).
 
    SEE ALSO: fitsio_close, fitsio_open_file.
  */
