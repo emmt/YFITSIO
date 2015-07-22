@@ -836,23 +836,65 @@ Y_fitsio_read_str(int argc)
   push_string(buffer);
 }
 
+static void
+read_record(int argc, int split)
+{
+  yfits_object* obj;
+  int keynum, status;
+
+  if (argc != 2) y_error("expecting exactly 2 arguments");
+  obj = yfits_fetch(argc - 1, TRUE);
+  keynum = fetch_int(argc - 2);
+  if (keynum < 0) y_error("invalid keyword umber");
+
+  status = 0;
+  critical(TRUE);
+  if (split) {
+    char** out;
+    char keyword[FLEN_KEYWORD+1];
+    char value[FLEN_VALUE+1];
+    char comment[FLEN_COMMENT+1];
+    long dims[2];
+    if (fits_read_keyn(obj->fptr, keynum, keyword, value, comment,
+                     &status) == 0) {
+      if (keynum == 0) {
+        ypush_nil();
+      } else {
+        dims[0] = 1;
+        dims[1] = 3;
+        out = ypush_q(dims);
+        out[0] = p_strcpy(keyword);
+        out[1] = p_strcpy(value);
+        out[2] = p_strcpy(comment);
+      }
+    }
+  } else {
+    if (fits_read_record(obj->fptr, keynum, buffer, &status) == 0) {
+      if (keynum == 0) {
+        ypush_nil();
+      } else {
+        push_string(buffer);
+      }
+    }
+  }
+  if (status != 0) {
+    if (status != KEY_NO_EXIST && status != VALUE_UNDEFINED) {
+      yfits_error(status);
+    }
+    ypush_nil();
+  }
+}
+
 void
 Y_fitsio_read_record(int argc)
 {
-  yfits_object* obj;
-  int num, status = 0;
-  if (argc != 2) y_error("expecting exactly 2 arguments");
-  obj = yfits_fetch(argc - 1, TRUE);
-  num = fetch_int(argc - 2);
-  critical(TRUE);
-  if (fits_read_record(obj->fptr, num, buffer, &status) != 0) {
-    if (status == KEY_NO_EXIST || status == VALUE_UNDEFINED) {
-      ypush_nil();
-      return;
-    }
-    yfits_error(status);
-  }
-  push_string(buffer);
+  read_record(argc, 0);
+}
+
+void
+Y_fitsio_read_keyn(int argc)
+{
+  read_record(argc, 1);
 }
 
 void

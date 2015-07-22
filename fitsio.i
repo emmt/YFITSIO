@@ -231,13 +231,15 @@ extern fitsio_read_comment;
 extern fitsio_read_card;
 extern fitsio_read_str;
 extern fitsio_read_record;
+extern fitsio_read_keyn;
 /* DOCUMENT fitsio_read_keyword(fh, key);
          or fitsio_read_value(fh, key);
          or fitsio_read_value(fh, key, def);
          or fitsio_read_comment(fh, key);
          or fitsio_read_card(fh, key);
          or fitsio_read_str(fh, key);
-         or fitsio_read_record(fh, num);
+         or fitsio_read_record(fh, keynum);
+         or fitsio_read_keyn(fh, keynum);
 
      These functions read or write keywords  in the Current Header Unit (CHU).
      Wild card characters  ('*', '?', or '#') may be  used when specifying the
@@ -280,6 +282,19 @@ extern fitsio_read_record;
      you, you  can use  `fitsio_read_keyword` and  parse the  value yourself).
      (iii) There is  no checking nor conversion done on  the default value DEF
      if it is provided.
+
+     The  functions  `fitsio_read_record`  and `fitsio_read_keyn`  return  the
+     KEYNUM-th header record  in the CHU.  The first keyword  in the header is
+     at  KEYNUM =  1; if  KEYNUM =  0, then  these routines  simply reset  the
+     internal  CFITSIO  pointer  to  the  beginning  of  the  header  so  that
+     subsequent keyword operations will start at  the top of the header (e.g.,
+     prior to  searching for keywords using  wild cards in the  keyword name).
+     If KEYNUM  = 0,  then nothing  is returned;  otherwise the  first routine
+     returns  the  entire 80-character  header  record  (with trailing  blanks
+     truncated),  while the  second routine  parses the  record and  returns a
+     vector  of 3  strings: the  keyword, the  value, and  the comment  fields
+     (blank truncated).
+
 
    SEE ALSO:
  */
