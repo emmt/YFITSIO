@@ -34,10 +34,10 @@ extern fitsio_open_image;
       extended file name syntax to interpret PATH.
 
       The opened file is automatically closed  when FH is no longer referenced
-      (thus there is no needs to use fitsio_close).
+      (thus there is no needs to use fitsio_close_file).
 
 
-   SEE ALSO: fitsio_close, fitsio_create_file.
+   SEE ALSO: fitsio_close_file, fitsio_create_file.
  */
 
 extern fitsio_create_file;
@@ -49,17 +49,17 @@ extern fitsio_create_file;
       The returned value FH is a handle to access the file contents.
 
       The opened file is automatically closed  when FH is no longer referenced
-      (thus there is no needs to use fitsio_close).
+      (thus there is no needs to use fitsio_close_file).
 
       Keyword BASIC can be  set true to not use the  extended file name syntax
       to interpret PATH (see CFITSIO documentation).
 
-   SEE ALSO: fitsio_close, fitsio_open_file.
+   SEE ALSO: fitsio_close_file, fitsio_open_file.
  */
 
-extern fitsio_close;
+extern fitsio_close_file;
 extern fitsio_delete_file;
-/* DOCUMENT fitsio_close, fh;
+/* DOCUMENT fitsio_close_file, fh;
          or fitsio_delete_file, fh;
 
      Close a previously opened FITS file.  The first routine simply closes the
@@ -79,7 +79,7 @@ extern fitsio_is_handle;
      open  file.  The  second  function check  whether object  OBJ  is a  FITS
      handle.
 
-   SEE ALSO: fitsio_open_file, fitsio_create_file, fitsio_close.
+   SEE ALSO: fitsio_open_file, fitsio_create_file, fitsio_close_file.
  */
 
 extern fitsio_file_name;

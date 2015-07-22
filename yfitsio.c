@@ -300,7 +300,7 @@ Y_fitsio_create_file(int argc)
 
 /* Close a FITS file. */
 void
-Y_fitsio_close(int argc)
+Y_fitsio_close_file(int argc)
 {
   yfits_object* obj;
   fitsfile *fptr;
