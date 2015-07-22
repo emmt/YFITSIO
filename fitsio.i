@@ -232,6 +232,7 @@ extern fitsio_read_card;
 extern fitsio_read_str;
 extern fitsio_read_record;
 extern fitsio_read_keyn;
+extern fitsio_read_key_unit;
 /* DOCUMENT fitsio_read_keyword(fh, key);
          or fitsio_read_value(fh, key);
          or fitsio_read_value(fh, key, def);
@@ -240,6 +241,7 @@ extern fitsio_read_keyn;
          or fitsio_read_str(fh, key);
          or fitsio_read_record(fh, keynum);
          or fitsio_read_keyn(fh, keynum);
+         or fitsio_read_key_unit(fh, key);
 
      These functions read or write keywords  in the Current Header Unit (CHU).
      Wild card characters  ('*', '?', or '#') may be  used when specifying the
@@ -295,8 +297,13 @@ extern fitsio_read_keyn;
      vector  of 3  strings: the  keyword, the  value, and  the comment  fields
      (blank truncated).
 
+     The  function `fitsio_read_key_unit`  returns the  physical units  string
+     from an existing keyword.  This routine uses a local convention, in which
+     the keyword units are enclosed in square brackets in the beginning of the
+     keyword comment field.  A null string is returned if no units are defined
+     for the keyword.
 
-   SEE ALSO:
+   SEE ALSO: fitsio_open_file.
  */
 
 
@@ -419,7 +426,6 @@ extern fitsio_write_pix;
 
    SEE ALSO: fitsio_open_file.
  */
-
 
 extern fitsio_copy_image_section;
 /* DOCUMENT fitsio_copy_image_section, inp, out, section;

@@ -642,30 +642,25 @@ Y_fitsio_read_keyword(int argc)
   obj = yfits_fetch(argc - 1, TRUE);
   key = ygets_q(argc - 2);
   critical(TRUE);
-  if (fits_read_keyword(obj->fptr, key, buffer, NULL, &status) != 0) {
-    if (status == KEY_NO_EXIST) {
-      ypush_nil();
-      return;
+  if (fits_read_keyword(obj->fptr, key, buffer, NULL, &status) == 0) {
+    /* Trim leading and trailing spaces and push it on top of the stack. */
+    value = buffer;
+    while (value[0] == ' ') {
+      ++value;
     }
-    if (status == VALUE_UNDEFINED) {
-      fprintf(stderr, "undefined value for \"%s\"\n", key);
-      push_string(NULL);
-      return;
+    len = strlen(value);
+    while (len > 1 && value[len-1] == ' ') {
+      --len;
     }
+    value[len] = '\0';
+    push_string(value);
+  } else if (status == KEY_NO_EXIST) {
+    ypush_nil();
+  } else if (status == VALUE_UNDEFINED) {
+    push_string(NULL);
+  } else {
     yfits_error(status);
   }
-
-  /* Trim leading and trailing spaces and push it on top of the stack. */
-  value = buffer;
-  while (value[0] == ' ') {
-    ++value;
-  }
-  len = strlen(value);
-  while (len > 1 && value[len-1] == ' ') {
-    --len;
-  }
-  value[len] = '\0';
-  push_string(value);
 }
 
 void
@@ -688,15 +683,14 @@ Y_fitsio_read_value(int argc)
     if (status == KEY_NO_EXIST) {
       /* Keyword not found, return default value if any. */
       if (argc < 3) ypush_nil();
-      return;
-    }
-    if (status == VALUE_UNDEFINED) {
-      fprintf(stderr, "undefined value for \"%s\"\n", key);
+    } else if (status == VALUE_UNDEFINED) {
       push_string(NULL);
-      return;
+    } else {
+      yfits_error(status);
     }
-    yfits_error(status);
+    return;
   }
+
   /* Trim leading and trailing spaces. */
   value = buffer;
   while (value[0] == ' ') {
@@ -895,6 +889,27 @@ void
 Y_fitsio_read_keyn(int argc)
 {
   read_record(argc, 1);
+}
+
+void
+Y_fitsio_read_key_unit(int argc)
+{
+  yfits_object* obj;
+  char *key;
+  int status = 0;
+  if (argc != 2) y_error("expecting exactly 2 arguments");
+  obj = yfits_fetch(argc - 1, TRUE);
+  key = ygets_q(argc - 2);
+  critical(TRUE);
+  if (fits_read_key_unit(obj->fptr, key, buffer, &status) == 0) {
+    push_string(buffer[0] == '\0' ? NULL : buffer);
+  } else if (status == KEY_NO_EXIST) {
+    ypush_nil();
+  } else if (status == VALUE_UNDEFINED) {
+    push_string(NULL);
+  } else {
+    yfits_error(status);
+  }
 }
 
 void
