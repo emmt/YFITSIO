@@ -173,8 +173,8 @@ yfits_extract(void* ptr, char* name)
 }
 
 /* Open an existing data file. */
-void
-Y_fitsio_open_file(int argc)
+static void
+open_file(int argc, int which)
 {
   yfits_object* obj;
   char* path = NULL;
@@ -199,7 +199,7 @@ Y_fitsio_open_file(int argc)
     } else {
       /* Keyword argument. */
       --iarg;
-      if (index == index_basic) {
+      if (which == 0 && index == index_basic) {
         basic = yarg_true(iarg);
       } else {
         y_error("unsupported keyword");
@@ -217,12 +217,43 @@ Y_fitsio_open_file(int argc)
 
   obj = yfits_push();
   critical(TRUE);
-  if (basic) {
+  if (which == 1) {
+    fits_open_data(&obj->fptr, path, iomode, &status);
+  } else if (which == 2) {
+    fits_open_table(&obj->fptr, path, iomode, &status);
+  } else if (which == 3) {
+    fits_open_image(&obj->fptr, path, iomode, &status);
+  } else if (basic) {
     fits_open_diskfile(&obj->fptr, path, iomode, &status);
   } else {
     fits_open_file(&obj->fptr, path, iomode, &status);
   }
+
   if (status) yfits_error(status);
+}
+
+void
+Y_fitsio_open_file(int argc)
+{
+  open_file(argc, 0);
+}
+
+void
+Y_fitsio_open_data(int argc)
+{
+  open_file(argc, 1);
+}
+
+void
+Y_fitsio_open_table(int argc)
+{
+  open_file(argc, 2);
+}
+
+void
+Y_fitsio_open_image(int argc)
+{
+  open_file(argc, 3);
 }
 
 /* Create and open a new empty output FITS file. */

@@ -14,18 +14,28 @@
 if (is_func(plug_in)) plug_in, "yfitsio";
 
 extern fitsio_open_file;
-/* DOCUMENT fh = fitsio_open_file(path);
-         or fh = fitsio_open_file(path, mode);
+extern fitsio_open_data;
+extern fitsio_open_table;
+extern fitsio_open_image;
+/* DOCUMENT fh = fitsio_open_file(path[, mode][, basic=0/1]);
+         or fh = fitsio_open_data(path[, mode]);
+         or fh = fitsio_open_table(path[, mode]);
+         or fh = fitsio_open_image(path[, mode]);
 
       Open an  existing FITS  file.  Argument  PATH is the  name of  the file.
       Optional argument  MODE can be "r"  for reading or "rw"  for reading and
       writing.  The returned value FH is a handle to access the file contents.
 
+      The first routine opens the file.   The other routines open the file and
+      moves to the first HDU containing  significant data, a table or an image
+      (respectively).  The extend file  syntax (see CFITSIO documentation) can
+      be  exploited  to  move  to  a  specific  HDU  or  extension.   For  the
+      fitsio_open_file routine, keyword  BASIC can be set true to  not use the
+      extended file name syntax to interpret PATH.
+
       The opened file is automatically closed  when FH is no longer referenced
       (thus there is no needs to use fitsio_close).
 
-      Keyword BASIC can be  set true to not use the  extended file name syntax
-      to interpret PATH (see CFITSIO documentation).
 
    SEE ALSO: fitsio_close, fitsio_create_file.
  */
