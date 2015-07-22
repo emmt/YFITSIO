@@ -38,6 +38,8 @@
 #define TRUE  1
 #define FALSE 0
 
+#define MAXDIMS 99
+
 PLUG_API void y_error(const char *) __attribute__ ((noreturn));
 
 static void push_string(const char* str);
@@ -70,6 +72,12 @@ static yfits_object* yfits_push(void);
 static yfits_object* yfits_fetch(int iarg, int assert_open);
 
 static const char* hdu_type_name(int type);
+
+/* Get image parameters.  Similar to fits_get_img_param but return also
+   retireiev number of axes and computes number of elements. */
+static int
+get_image_param(yfits_object* fh, int maxdims, int* bitpix, int* naxis,
+                long dims[], long* number, int* status);
 
 /* A static buffer for error messages, file names, etc. */
 static char buffer[32*1024];
@@ -159,12 +167,18 @@ yfits_extract(void* ptr, char* name)
 }
 
 static long index_extended = -1L;
+static long index_null = -1L;
+static long index_number = -1L;
+static long index_offset = -1L;
 
 static void
 initialize_indexes()
 {
 #define INIT(s) if (index_##s == -1L) index_##s = yget_global(#s, 0)
   INIT(extended);
+  INIT(null);
+  INIT(number);
+  INIT(offset);
 #undef INIT
 }
 
@@ -885,22 +899,203 @@ Y_fitsio_get_img_size(int argc)
   }
 }
 
-
 void
 Y_fitsio_create_img(int argc)
 {
   yfits_object* obj;
-  long dims[100];
+  long dims[MAXDIMS + 1];
   int bitpix, status = 0;
   if (argc < 2) y_error("not enough arguments");
   obj = yfits_fetch(argc - 1, TRUE);
   bitpix = fetch_int(argc - 2);
-  get_dimlist(argc - 3, 0, dims, 99);
+  get_dimlist(argc - 3, 0, dims, MAXDIMS);
   critical(TRUE);
   if (fits_create_img(obj->fptr, bitpix, dims[0], &dims[1], &status) != 0) {
     yfits_error(status);
   }
   yarg_drop(argc - 1);
+}
+
+void
+Y_fitsio_copy_cell2image(int argc)
+{
+  yfits_object* inp;
+  yfits_object* out;
+  char* colname;
+  long rownum;
+  int status = 0;
+
+  if (argc != 5) y_error("expecting exactly 4 arguments");
+  inp = yfits_fetch(argc - 1, TRUE);
+  out = yfits_fetch(argc - 2, TRUE);
+  colname = ygets_q(argc - 3);
+  rownum = ygets_l(argc - 4);
+  if (colname == NULL || colname[0] == '\0') {
+    y_error("invalid column name");
+  }
+  critical(TRUE);
+  if (fits_copy_cell2image(inp->fptr, out->fptr, colname,
+                           rownum, &status) != 0) {
+    yfits_error(status);
+  }
+  yarg_drop(2); /* left output object on top of stack */
+}
+
+void
+Y_fitsio_write_pix(int argc)
+{
+  yfits_object* fh = NULL;
+  void* buf = NULL;
+  void* null;
+  long ntot = 0, offset, number, stride;
+  long dims[MAXDIMS];
+  long first[MAXDIMS];
+  int k, iarg, naxis = 0, type = Y_VOID, status = 0;
+  int null_iarg = -1;
+  int offset_iarg = -1;
+  int number_iarg = -1;
+
+  /* Parse arguments. */
+  for (iarg = argc - 1; iarg >= 0; --iarg) {
+    long index = yarg_key(iarg);
+    if (index < 0) {
+      /* Positional argument. */
+      if (fh == NULL) {
+        fh = yfits_fetch(iarg, TRUE);
+      } else if (buf == NULL) {
+        buf = ygeta_any(iarg, &ntot, NULL, &type);
+      } else {
+        y_error("too many arguments");
+      }
+    } else {
+      /* Keyword argument. */
+      --iarg;
+      if (index == index_offset) {
+        offset_iarg = iarg;
+      } else if (index == index_null) {
+        number_iarg = iarg;
+      } else if (index == index_null) {
+        null_iarg = iarg;
+      } else {
+        y_error("unsupported keyword");
+      }
+    }
+  }
+  if (buf == NULL) {
+    y_error("too few arguments");
+  }
+  if (number_iarg == -1) {
+    number = ntot;
+  } else {
+    number = ygets_l(number_iarg);
+    if (number < 0 || number > ntot)  {
+      y_error("bad number of values to write");
+    }
+  }
+  if (offset_iarg == -1) {
+    offset = 0;
+  } else {
+    offset = ygets_l(offset_iarg);
+    if (offset < 0) {
+      y_error("bad offset");
+    }
+  }
+  if (null_iarg == -1) {
+    null = NULL;
+  } else {
+    if (yarg_rank(null_iarg) != 0) {
+      y_error("null value must be a scalar");
+    }
+    if (yarg_typeid(null_iarg) != type) {
+      y_error("null value must be of same type as the data");
+    }
+    null = ygeta_any(null_iarg, NULL, NULL, NULL);
+  }
+
+  /* Convert Yorick type to CFITSIO type. */
+  switch (type) {
+  case Y_CHAR:
+    type = TBYTE;
+    break;
+  case Y_SHORT:
+    type = TSHORT;
+    break;
+  case Y_INT:
+    type = TINT;
+    break;
+  case Y_LONG:
+    type = (sizeof(long) == 8 ? TLONGLONG : TLONG);
+    break;
+  case Y_FLOAT:
+    type = TFLOAT;
+    break;
+  case Y_DOUBLE:
+    type = TDOUBLE;
+    break;
+  case Y_COMPLEX:
+    type = TDBLCOMPLEX;
+    break;
+  default:
+    y_error("unsuported array type");
+  }
+
+  /* Apply operation. */
+  critical(TRUE);
+  if (get_image_param(fh, MAXDIMS, NULL, &naxis, dims,
+                      &ntot, &status) == 0) {
+    if (naxis < 1) {
+      y_error("empty image");
+    }
+    if (offset + number > ntot) {
+      y_error("would write beyond image limits");
+    }
+    if (number > 0) {
+      stride = ntot;
+      for (k = naxis - 1; k >= 0; --k) {
+        stride /= dims[k];
+        first[k] = 1 + (offset/stride);
+        offset %= stride;
+      }
+      if (null == NULL) {
+        fits_write_pix(fh->fptr, type, first, number, buf, &status);
+      } else {
+        fits_write_pixnull(fh->fptr, type, first, number, buf,
+                           null, &status);
+      }
+    }
+  }
+  if (status != 0) {
+    yfits_error(status);
+  }
+  ypush_nil();
+}
+
+void
+Y_fitsio_copy_image2cell(int argc)
+{
+  yfits_object* inp;
+  yfits_object* out;
+  char* colname;
+  long rownum, longval;
+  int flag, status = 0;
+
+  if (argc != 5) y_error("expecting exactly 5 arguments");
+  inp = yfits_fetch(argc - 1, TRUE);
+  out = yfits_fetch(argc - 2, TRUE);
+  colname = ygets_q(argc - 3);
+  rownum  = ygets_l(argc - 4);
+  longval = ygets_l(argc - 5);
+  if (longval < 0 || longval > 2) y_error("bad value for COPYKEYFLAG");
+  flag = (int)longval;
+  if (colname == NULL || colname[0] == '\0') {
+    y_error("invalid column name");
+  }
+  critical(TRUE);
+  if (fits_copy_image2cell(inp->fptr, out->fptr, colname,
+                           rownum, flag, &status) != 0) {
+    yfits_error(status);
+  }
+  yarg_drop(3); /* left output object on top of stack */
 }
 
 void
@@ -1074,6 +1269,35 @@ get_dimlist(int iarg_first, int iarg_last,
     }
   }
   dims[0] = ndims;
+}
+
+static int
+get_image_param(yfits_object* fh, int maxdims, int* bitpix_ptr,
+                int* naxis_ptr, long dims[], long* number_ptr,
+                int* status)
+{
+  int k, naxis, bitpix;
+  critical(TRUE);
+  if (fits_get_img_param(fh->fptr, maxdims, &bitpix, &naxis,
+                         dims, status) == 0) {
+      if (naxis > maxdims) {
+        y_error("too many dimensions");
+      }
+      if (bitpix_ptr != NULL) {
+        *bitpix_ptr = bitpix;
+      }
+      if (naxis_ptr != NULL) {
+        *naxis_ptr = naxis;
+      }
+      if (number_ptr != NULL) {
+        long number = 1;
+        for (k = 0; k < naxis; ++k) {
+          number *= dims[k];
+        }
+        *number_ptr = number;
+      }
+  }
+  return *status;
 }
 
 /*

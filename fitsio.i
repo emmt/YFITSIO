@@ -340,6 +340,62 @@ extern fitsio_create_img;
    SEE ALSO: fitsio_create, dimsof, array.
  */
 
+extern fitsio_copy_cell2image;
+extern fitsio_copy_image2cell;
+/* DOCUMENT fitsio_copy_cell2image, inp, out, colnam, rownum;
+         or fitsio_copy_image2cell, inp, out, colnam, rownum, copykeyflag;
+
+     Copy an  n-dimensional image in a  particular row and column  of a binary
+     table (in a vector column) to or from a primary array or image extension.
+
+     The  cell2image routine  will append  a new  image extension  (or primary
+     array) to  the output file.  Any  WCS keywords associated with  the input
+     column image  will be translated into  the appropriate form for  an image
+     extension.   Any  other  keywords  in  the  table  header  that  are  not
+     specifically related to  defining the binary table structure  or to other
+     columns in  the table  will also be  copied to the  header of  the output
+     image.
+
+     The image2cell routine  will copy the input image into  the specified row
+     and column  of the current binary  table in the output  file.  The binary
+     table HDU  must exist before calling  this routine, but it  may be empty,
+     with no rows or columns of data.   The specified column (and row) will be
+     created if it does not already exist.  The COPYKEYFLAG parameter controls
+     which  keywords are  copied from  the input  image to  the header  of the
+     output table: 0  = no keywords will  be copied, 1 = all  keywords will be
+     copied (except those keywords that would be invalid in the table header),
+     and 2 = copy only the WCS keywords.
+
+     When called as a function, argument OUT is returned.
+
+   SEE ALSO: fitsio_open.
+ */
+
+extern fitsio_write_pix;
+/* DOCUMENT fitsio_write_pix, fh, buf;
+
+     Write pixels into the FITS data array.  The values of input array BUF are
+     simply written to the  array of pixels of the FITS  file (doing data type
+     conversion  if necessary).   The dimensionality  of BUF  and of  the FITS
+     array  of  pixels  are  not  considered.  That  is  to  say,  writing  is
+     sequential.  Keywords OFFSET and NUMBER can be used to specify the offset
+     of the starting  pixel to be written  and the number of  values to write.
+     By default, OFFSET = 0 and NUMBER = numberof(BUF).
+
+     Keyword NULL can be used to specify  the value of the invalid (or "null")
+     elements in BUF.   The routine will substitute the  appropriate FITS null
+     value for any elements  which are equal to the value  of keyword NULL (if
+     specified this value must be a scalar of the same data type as BUF).  For
+     integer FITS arrays, the FITS null  value is defined by the BLANK keyword
+     (an error is  returned if the BLANK keyword doesn't  exist). For floating
+     point  FITS arrays  the special  IEEE  NaN (Not-a-Number)  value will  be
+     written into the FITS file.
+
+
+   SEE ALSO: fitsio_open.
+ */
+
+
 extern fitsio_copy_image_section;
 /* DOCUMENT fitsio_copy_image_section, inp, out, section;
 
