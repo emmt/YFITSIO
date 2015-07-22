@@ -184,7 +184,7 @@ initialize_indexes()
 
 /* Open an existing data file. */
 void
-Y_fitsio_open(int argc)
+Y_fitsio_open_file(int argc)
 {
   yfits_object* obj;
   char* path = NULL;
@@ -239,7 +239,7 @@ Y_fitsio_open(int argc)
 
 /* Create and open a new empty output FITS file. */
 void
-Y_fitsio_create(int argc)
+Y_fitsio_create_file(int argc)
 {
   yfits_object* obj;
   char* path = NULL;
@@ -303,7 +303,7 @@ Y_fitsio_close(int argc)
 
 /* Delete a FITS file. */
 void
-Y_fitsio_delete(int argc)
+Y_fitsio_delete_file(int argc)
 {
   yfits_object* obj;
   fitsfile *fptr;

@@ -13,9 +13,9 @@
 
 if (is_func(plug_in)) plug_in, "yfitsio";
 
-extern fitsio_open;
-/* DOCUMENT fh = fitsio_open(path);
-         or fh = fitsio_open(path, mode);
+extern fitsio_open_file;
+/* DOCUMENT fh = fitsio_open_file(path);
+         or fh = fitsio_open_file(path, mode);
 
       Open an  existing FITS  file.  Argument  PATH is the  name of  the file.
       Optional argument  MODE can be "r"  for reading or "rw"  for reading and
@@ -27,11 +27,11 @@ extern fitsio_open;
       Keyword EXTENDED can be set true to use the extended file name syntax to
       interpret PATH (see CFITSIO documentation).
 
-   SEE ALSO: fitsio_close, fitsio_create.
+   SEE ALSO: fitsio_close, fitsio_create_file.
  */
 
-extern fitsio_create;
-/* DOCUMENT fh = fitsio_create(path);
+extern fitsio_create_file;
+/* DOCUMENT fh = fitsio_create_file(path);
 
       Create and open a new empty output FITS file.  Argument PATH is the name
       of the  file.  An error will  be returned if the  specified file already
@@ -44,20 +44,20 @@ extern fitsio_create;
       Keyword EXTENDED can be set true to use the extended file name syntax to
       interpret PATH (see CFITSIO documentation).
 
-   SEE ALSO: fitsio_close, fitsio_open.
+   SEE ALSO: fitsio_close, fitsio_open_file.
  */
 
 extern fitsio_close;
-extern fitsio_delete;
+extern fitsio_delete_file;
 /* DOCUMENT fitsio_close, fh;
-         or fitsio_delete, fh;
+         or fitsio_delete_file, fh;
 
      Close a previously opened FITS file.  The first routine simply closes the
      file, whereas the  second one also deletes the file,  which can be useful
      in cases where a FITS file has  been partially created, but then an error
      occurs which prevents it from being completed.
 
-   SEE ALSO: fitsio_open, fitsio_create.
+   SEE ALSO: fitsio_open_file, fitsio_create_file.
  */
 
 extern fitsio_is_open;
@@ -69,7 +69,7 @@ extern fitsio_is_handle;
      open  file.  The  second  function check  whether object  OBJ  is a  FITS
      handle.
 
-   SEE ALSO: fitsio_open, fitsio_create, fitsio_close.
+   SEE ALSO: fitsio_open_file, fitsio_create_file, fitsio_close.
  */
 
 extern fitsio_file_name;
@@ -90,7 +90,7 @@ extern fitsio_url_type;
      All these functions return a null string, string(0), if the file has been
      closed.
 
-   SEE ALSO: fitsio_open, fitsio_is_open.
+   SEE ALSO: fitsio_open_file, fitsio_is_open.
  */
 
 extern fitsio_movabs_hdu;
@@ -119,7 +119,7 @@ extern fitsio_movnam_hdu;
      -1  is returned  or an  error  is thrown  if  the function  is called  as
      a subroutine.
 
-   SEE ALSO: fitsio_open, fitsio_get_hdu_type.
+   SEE ALSO: fitsio_open_file, fitsio_get_hdu_type.
  */
 
 extern fitsio_get_num_hdus;
@@ -131,7 +131,7 @@ extern fitsio_get_num_hdus;
      closed, or if data  has been written to the HDU.  The current HDU remains
      unchanged by this routine.
 
-   SEE ALSO: fitsio_open, fitsio_get_hdu_num, fitsio_get_hdu_type.
+   SEE ALSO: fitsio_open_file, fitsio_get_hdu_num, fitsio_get_hdu_type.
  */
 
 extern fitsio_get_hdu_num;
@@ -140,7 +140,7 @@ extern fitsio_get_hdu_num;
      Return the number of  the current HDU (CHDU) in the  FITS file (where the
      primary array = 1).
 
-   SEE ALSO: fitsio_open, fitsio_get_num_hdus, fitsio_get_hdu_type.
+   SEE ALSO: fitsio_open_file, fitsio_get_num_hdus, fitsio_get_hdu_type.
  */
 
 local FITSIO_IMAGE_HDU, FITSIO_ASCII_TBL, FITSIO_BINARY_TBL, FITSIO_ANY_HDU;
@@ -151,7 +151,7 @@ extern fitsio_get_hdu_type;
      for   the  returned   value  are:   FITSIO_IMAGE,  FITSIO_ASCII_TBL,   or
      FITSIO_BINARY_TBL.
 
-   SEE ALSO:fitsio_open, fitsio_get_hdu_num, fitsio_get_num_hdus.
+   SEE ALSO:fitsio_open_file, fitsio_get_hdu_num, fitsio_get_num_hdus.
  */
 
 extern fitsio_copy_file;
@@ -199,7 +199,7 @@ extern fitsio_delete_hdu;
       following  extension.  If  there are  no following  extensions then  the
       current HDU will be redefined to point to the previous HDU.
 
-   SEE ALSO: fitsio_open.
+   SEE ALSO: fitsio_open_file.
  */
 
 extern fitsio_get_hdrspace;
@@ -212,7 +212,7 @@ extern fitsio_get_hdrspace;
      writing new keywords to a header so  in practice there is no limit to the
      number of keywords that can be added to a header.
 
-   SEE ALSO: fitsio_open.
+   SEE ALSO: fitsio_open_file.
  */
 
 extern fitsio_read_keyword;
@@ -311,7 +311,7 @@ extern fitsio_get_img_equivtype;
      (*) non standard values
 
 
-   SEE ALSO: fitsio_open, fitsio_get_img_size.
+   SEE ALSO: fitsio_open_file, fitsio_get_img_size.
  */
 
 extern fitsio_get_img_dim;
@@ -323,7 +323,7 @@ extern fitsio_get_img_size;
      image.  The number  of axes in the  image is given by  the NAXIS keyword,
      and the size of each dimension is given by the NAXISn keywords.
 
-   SEE ALSO: fitsio_open, fitsio_get_img_type.
+   SEE ALSO: fitsio_open_file, fitsio_get_img_type.
  */
 
 extern fitsio_create_img;
@@ -337,7 +337,7 @@ extern fitsio_create_img;
 
      When called as a function, FH is returned.
 
-   SEE ALSO: fitsio_create, dimsof, array.
+   SEE ALSO: fitsio_create_file, dimsof, array.
  */
 
 extern fitsio_copy_cell2image;
@@ -368,7 +368,7 @@ extern fitsio_copy_image2cell;
 
      When called as a function, argument OUT is returned.
 
-   SEE ALSO: fitsio_open.
+   SEE ALSO: fitsio_open_file.
  */
 
 extern fitsio_write_pix;
@@ -392,7 +392,7 @@ extern fitsio_write_pix;
      written into the FITS file.
 
 
-   SEE ALSO: fitsio_open.
+   SEE ALSO: fitsio_open_file.
  */
 
 
@@ -409,7 +409,7 @@ extern fitsio_copy_image_section;
      name  syntax   (see  CFISIO  documentation).    Examples:  "1:100,1:200",
      "1:100:2, 1:*:2", "*, -*".
 
-   SEE ALSO: fitsio_open.
+   SEE ALSO: fitsio_open_file.
  */
 
 extern fitsio_debug;
