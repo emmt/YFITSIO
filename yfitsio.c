@@ -1277,13 +1277,18 @@ Y_fitsio_write_array(int argc)
   if (null_iarg == -1) {
     null = NULL;
   } else {
-    if (yarg_rank(null_iarg) != 0) {
-      y_error("null value must be a scalar");
+    int id = yarg_typeid(null_iarg);
+    if (id == Y_VOID) {
+      null = NULL;
+    } else {
+      if (yarg_rank(null_iarg) != 0) {
+        y_error("null value must be a scalar");
+      }
+      if (id != type) {
+        y_error("null value must be of same type as the data");
+      }
+      null = ygeta_any(null_iarg, NULL, NULL, NULL);
     }
-    if (yarg_typeid(null_iarg) != type) {
-      y_error("null value must be of same type as the data");
-    }
-    null = ygeta_any(null_iarg, NULL, NULL, NULL);
   }
 
   /* Convert Yorick type to CFITSIO type. */
