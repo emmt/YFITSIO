@@ -1,7 +1,14 @@
 YFITSIO
-======
+=======
 
-Yorick plug-in sample.
+YFITSIO is a Yorick plug-in for reading/writing FITS files thanks to the
+[CFITSIO library](http://heasarc.gsfc.nasa.gov/fitsio/fitsio.html).  FITS
+(for Flexible Image Transport System) is a file format mostly used in
+astronomy.  When complete, this plug-in will supersede the functionalities
+implented by `"fits.i"` in pure Yorick, in the mean time the prefix
+`fitsio_` is used to avoid confusion with the `fits_` suffix used by the
+routines defined in by `"fits.i"`.
+
 
 Installation
 ------------
@@ -21,11 +28,11 @@ configure for building.
 Then, to use the plug-in in Yorick:
 ````
 $ yorick
-> include "sox.i"
+> include "fitsio.i"
 ````
 More detailled explanations are given below.
 
-1. You must have Yorick and the SoX library installed on your machine.
+1. You must have Yorick and the CFITSIO library installed on your machine.
 
 2. Unpack the plug-in code somewhere.
 
