@@ -76,7 +76,7 @@ extern fitsio_is_handle;
          or fitsio_is_handle(obj);
 
      The first  function checks whether FITS  handle FH is associated  with an
-     open  file.  The  second  function check  whether object  OBJ  is a  FITS
+     open  file.  The  second function  checks whether  object OBJ  is a  FITS
      handle.
 
    SEE ALSO: fitsio_open_file, fitsio_create_file, fitsio_close_file.
@@ -118,10 +118,10 @@ extern fitsio_movnam_hdu;
      (first) HDU which has the specified extension type and EXTNAME and EXTVER
      keyword values (or  HDUNAME and HDUVER keywords).   The HDUTYPE parameter
      may have a value of FITSIO_IMAGE, FITSIO_ASCII_TBL, FITSIO_BINARY_TBL, or
-     FITSIO_ANY_HD where FITSIO_ANY_HD means that  only the extname and extver
-     values will  be used to  locate the  correct extension.  If  the argument
-     EXTVER is omitted or  0 then the EXTVER keyword is  ignored and the first
-     HDU with a matching EXTNAME (or HDUNAME) keyword will be found.
+     FITSIO_ANY_HDU  where  FITSIO_ANY_HDU means  that  only  the EXTNAME  and
+     EXTVER  values will  be used  to locate  the correct  extension.  If  the
+     argument EXTVER  is omitted or 0  then the EXTVER keyword  is ignored and
+     the first HDU with a matching EXTNAME (or HDUNAME) keyword will be found.
 
      Upon  success, the  returned value  is the  type of  the new  current HDU
      (FITSIO_IMAGE, FITSIO_ASCII_TBL,  or FITSIO_BINARY_TBL).  If  no matching
@@ -135,11 +135,11 @@ extern fitsio_movnam_hdu;
 extern fitsio_get_num_hdus;
 /* DOCUMENT fitsio_get_num_hdus(fh);
 
-     Return the total number of HDUs in the FITS file. This returns the number
-     of completely defined HDUs in the file.  If a new HDU has just been added
-     to the FITS file, then that last HDU  will only be counted if it has been
-     closed, or if data  has been written to the HDU.  The current HDU remains
-     unchanged by this routine.
+     Return  the total  number of  HDUs in  the FITS  file.  This  returns the
+     number of  completely defined HDUs  in the file.  If  a new HDU  has just
+     been added to the  FITS file, then that last HDU will  only be counted if
+     it has been closed, or if data  has been written to the HDU.  The current
+     HDU remains unchanged by this routine.
 
    SEE ALSO: fitsio_open_file, fitsio_get_hdu_num, fitsio_get_hdu_type.
  */
@@ -205,7 +205,7 @@ extern fitsio_delete_hdu;
       in the file) then  the current primary array will be  replaced by a null
       primary array  containing the  minimum set of  required keywords  and no
       data.  If there  are more extensions in the file  following the one that
-      is deleted, then the  the current HDU will be redefined  to point to the
+      is  deleted, then  the current  HDU will  be redefined  to point  to the
       following  extension.  If  there are  no following  extensions then  the
       current HDU will be redefined to point to the previous HDU.
 
@@ -306,7 +306,6 @@ extern fitsio_read_key_unit;
    SEE ALSO: fitsio_open_file.
  */
 
-
 local FITSIO_BYTE_IMG, FITSIO_SHORT_IMG, FITSIO_LONG_IMG;
 local FITSIO_LONGLONG_IMG, FITSIO_FLOAT_IMG, FITSIO_DOUBLE_IMG;
 local FITSIO_SBYTE_IMG, FITSIO_USHORT_IMG, FITSIO_ULONG_IMG;
@@ -358,11 +357,108 @@ extern fitsio_get_img_size;
    SEE ALSO: fitsio_open_file, fitsio_get_img_type.
  */
 
+extern fitsio_read_array;
+/* DOCUMENT fitsio_read_array(fh);
+         or fitsio_read_array(fh, first=..., last=..., incr=...);
+         or fitsio_read_array(fh, first=..., number=...);
+
+     Read array values  from FITS "IMAGE" extension in the  current HDU of the
+     handle FH.
+
+     The first call returns the complete multi-dimesional array.
+
+     The  second call  returns a  rectangular sub-array  whose first  and last
+     elements  are defined  by  the values  of the  keywords  FIRST and  LAST.
+     Optionally,  an increment  can  be  specified via  the  INCR keyword;  by
+     default the increment  is equal to one for every  dimensions.  The values
+     of  these  keywords  must  be multi-dimensional  "coordinates",  that  is
+     integer vectors  of same length  as the rank of  the array (given  by the
+     value of the  "NAXIS" keyword).  Integer scalars  are however acceptable,
+     if NAXIS is equal to one.  Coordinates start at one.
+
+     The third call returns a flat array of values.  The first element to read
+     and the  number of elements to  read are specified by  the keywords FIRST
+     and NUMBER.
+
+     Keyword NULL can be  used to specify a variable to  store the value taken
+     by undefined elements of the array.   If there are no undefined elements,
+     the variable will be set to [] on return.  Beware that undefined elements
+     may take the special NaN (not a number) value which is difficult to check
+     (a simple comparison is not sufficient  but the ieee_test function can be
+     used).  The example below takes care of that:
+
+       local null;
+       arr = fitsio_read_array(fh, null=null);
+       if (! is_void(null)) {
+          if (null == null) {
+             // undefined values are not marked by NaN's
+	     undefined = (arr == null);
+          } else {
+             // undefined values are marked by NaN's
+	     undefined = (ieee_test(arr) == ieee_test(null));
+          }
+       }
+
+     This  function  implements  most  of  the  capabilities  of  the  CFITSIO
+     functions fits_read_img, fits_read_subset and fits_read_pix.
+
+
+   SEE ALSO: fitsio_open_file, fitsio_write_array, ieee_test.
+ */
+
+extern fitsio_read_array;
+/* DOCUMENT fitsio_read_array(fh);
+         or fitsio_read_array(fh, first=..., last=..., incr=...);
+         or fitsio_read_array(fh, first=..., number=...);
+
+     Read array values from the current HDU  of handle FH.  The current HDU of
+     FH must be a FITS "IMAGE" extension.
+
+     The first call returns the complete multi-dimesional array.
+
+     The  second call  returns a  rectangular sub-array  whose first  and last
+     elements  are defined  by  the values  of the  keywords  FIRST and  LAST.
+     Optionally,  an increment  can  be  specified via  the  INCR keyword;  by
+     default the increment  is equal to one for every  dimensions.  The values
+     of  these  keywords  must  be multi-dimensional  "coordinates",  that  is
+     integer vectors  of same length  as the rank of  the array (given  by the
+     value of the  "NAXIS" keyword).  Integer scalars  are however acceptable,
+     if NAXIS is equal to one.  Coordinates start at one.
+
+     The third call returns a flat array of values.  The first element to read
+     and the  number of elements to  read are specified by  the keywords FIRST
+     and NUMBER.
+
+     Keyword NULL can be  used to specify a variable to  store the value taken
+     by undefined elements of the array.   If there are no undefined elements,
+     the variable will be set to [] on return.  Beware that undefined elements
+     may take the special NaN (not a number) value which is difficult to check
+     (a simple comparison is not sufficient  but the ieee_test function can be
+     used).  The example below takes care of that:
+
+       local null;
+       arr = fitsio_read_array(fh, null=null);
+       if (! is_void(null)) {
+          if (null == null) {
+             // undefined values are not marked by NaN's
+	     undefined = (arr == null);
+          } else {
+             // undefined values are marked by NaN's
+	     undefined = (ieee_test(arr) == ieee_test(null));
+          }
+       }
+
+     This  function  implements  most  of  the  capabilities  of  the  CFITSIO
+     functions fits_read_img, fits_read_subset and fits_read_pix.
+
+
+   SEE ALSO: fitsio_open_file, fitsio_write_array, ieee_test.
+ */
 extern fitsio_create_img;
 /* DOCUMENT fitsio_create_img, fh, bitpix, dims, ...;
 
      Create a new primary array or  IMAGE extension with a specified data type
-     and size.  If  the FITS file is  currently empty then a  primary array is
+     and size.  If the  FITS file is currently empty, then  a primary array is
      created,  otherwise  a new  IMAGE  extension  is  appended to  the  file.
      Remaining arguments  DIMS, ... form the  dimension list of the  image and
      can take any of the form accepted by Yorick array() function.
@@ -403,28 +499,40 @@ extern fitsio_copy_image2cell;
    SEE ALSO: fitsio_open_file.
  */
 
-extern fitsio_write_pix;
-/* DOCUMENT fitsio_write_pix, fh, buf;
+extern fitsio_write_array;
+/* DOCUMENT fitsio_write_array, fh, arr, first=..., null=...;
 
-     Write pixels into the FITS data array.  The values of input array BUF are
-     simply written to the  array of pixels of the FITS  file (doing data type
-     conversion  if necessary).   The dimensionality  of BUF  and of  the FITS
-     array  of  pixels  are  not  considered.  That  is  to  say,  writing  is
-     sequential.  Keywords OFFSET and NUMBER can be used to specify the offset
-     of the starting  pixel to be written  and the number of  values to write.
-     By default, OFFSET = 0 and NUMBER = numberof(BUF).
+     Write array values ARR into the current HDU of handle FH.  The current
+     HDU of FH must be a FITS "IMAGE" extension.
+
+     There are 3  possibilities depending on whether and how  keyword FIRST is
+     specified; in any  cases, the number of written  values is numberof(ARR).
+     If keyword FIRST is not specified,  the array dimensions must be the same
+     as  that of  the FITS  array.   If keyword  FIRST  is set  with a  scalar
+     integer, it indicates  the position (starting at 1) of  the first element
+     to  write  in  the  FITS  array,   the  writing  is  sequential  and  the
+     dimensionality of ARR and of the FITS array are not considered.  Finally,
+     if keyword FIRST is  set with a vector of NAXIS  integers (where NAXIS is
+     the value  of the "NAXIS"  FITS key), it  indicates indices of  the first
+     element of a rectangular sub-array to  write, the number of dimensions of
+     ARR may be less than NAXIS.  When writing a sub-array the NULL keyword is
+     not supported.
 
      Keyword NULL can be used to specify  the value of the invalid (or "null")
-     elements in BUF.   The routine will substitute the  appropriate FITS null
+     elements in ARR.   The routine will substitute the  appropriate FITS null
      value for any elements  which are equal to the value  of keyword NULL (if
-     specified this value must be a scalar of the same data type as BUF).  For
+     specified this value must be a scalar of the same data type as ARR).  For
      integer FITS arrays, the FITS null  value is defined by the BLANK keyword
-     (an error is  returned if the BLANK keyword doesn't  exist). For floating
+     (an error is returned if the  BLANK keyword doesn't exist).  For floating
      point  FITS arrays  the special  IEEE  NaN (Not-a-Number)  value will  be
-     written into the FITS file.
+     written into the FITS file.  Keyword NULL cannot be specified for writing
+     a rectangular sub-array (i.e., when keywords FIRST is a list of indices).
+
+     This   function   implements   writing    via   the   CFITSIO   functions
+     fits_write_subset, fits_write_img and fits_write_imgnull.
 
 
-   SEE ALSO: fitsio_open_file.
+   SEE ALSO: fitsio_open_file, fitsio_read_array, ieee_test.
  */
 
 extern fitsio_copy_image_section;

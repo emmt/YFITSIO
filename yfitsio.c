@@ -42,10 +42,24 @@
 
 PLUG_API void y_error(const char *) __attribute__ ((noreturn));
 
-static void push_string(const char* str);
+/* A type to store any scalar value. */
+typedef struct {
+  union {
+    char c;
+    short s;
+    int i;
+    long l;
+    float f;
+    double d;
+  } value;
+  int type;
+} scalar_t;
+
+static void  push_string(const char* str);
+static void  push_scalar(const scalar_t* s);
 static char* fetch_path(int iarg);
-static int fetch_int(int iarg);
-static void critical(int clear_errmsg);
+static int   fetch_int(int iarg);
+static void  critical(int clear_errmsg);
 
 /* Retrieve dimension list from arguments of the stack.  IARG_FIRST is the
    first stack element to consider, IARG_LAST is the last one (inclusive and
@@ -74,16 +88,18 @@ static yfits_object* yfits_fetch(int iarg, int assert_open);
 static const char* hdu_type_name(int type);
 
 /* Get image parameters.  Similar to fits_get_img_param but return also
-   retireiev number of axes and computes number of elements. */
+   number of axes and computes number of elements. */
 static int
 get_image_param(yfits_object* fh, int maxdims, int* bitpix, int* naxis,
                 long dims[], long* number, int* status);
 
 /* Fast indexes to common keywords. */
-static long index_basic = -1L;
-static long index_null = -1L;
-static long index_number = -1L;
-static long index_offset = -1L;
+static long index_of_basic = -1L;
+static long index_of_first = -1L;
+static long index_of_incr = -1L;
+static long index_of_last = -1L;
+static long index_of_null = -1L;
+static long index_of_number = -1L;
 
 /* A static buffer for error messages, file names, etc. */
 static char buffer[32*1024];
@@ -199,7 +215,7 @@ open_file(int argc, int which)
     } else {
       /* Keyword argument. */
       --iarg;
-      if (which == 0 && index == index_basic) {
+      if (which == 0 && index == index_of_basic) {
         basic = yarg_true(iarg);
       } else {
         y_error("unsupported keyword");
@@ -279,7 +295,7 @@ Y_fitsio_create_file(int argc)
     } else {
       /* Keyword argument. */
       --iarg;
-      if (index == index_basic) {
+      if (index == index_of_basic) {
         basic = yarg_true(iarg);
       } else {
         y_error("unsupported keyword");
@@ -974,6 +990,200 @@ Y_fitsio_get_img_size(int argc)
 }
 
 void
+Y_fitsio_read_array(int argc)
+{
+  scalar_t null;
+  yfits_object* fh;
+  long ntot, first, number;
+  long dims[Y_DIMSIZE];
+  long c[Y_DIMSIZE - 1];
+  long* fpix = NULL;
+  long* lpix = NULL;
+  long* ipix = NULL;
+  void* arr;
+  long null_index;
+  int naxis, bitpix, status, mode, datatype, anynull;
+  int iarg, first_iarg, last_iarg, incr_iarg, number_iarg;
+
+  /* Parse arguments. */
+  null_index = -1;
+  first_iarg = -1;
+  last_iarg = -1;
+  incr_iarg = -1;
+  number_iarg = -1;
+  mode = 0;
+  fh = NULL;
+  for (iarg = argc - 1; iarg >= 0; --iarg) {
+    long index = yarg_key(iarg);
+    if (index < 0) {
+      /* Positional argument. */
+      if (fh == NULL) {
+        fh = yfits_fetch(iarg, TRUE);
+      } else {
+        y_error("too many arguments");
+      }
+    } else {
+      /* Keyword argument. */
+      --iarg;
+      if (index == index_of_first) {
+        first_iarg = iarg;
+        mode |= 1;
+      } else if (index == index_of_last) {
+        last_iarg = iarg;
+        mode |= 2;
+      } else if (index == index_of_incr) {
+        incr_iarg = iarg;
+        mode |= 4;
+     } else if (index == index_of_number) {
+        number_iarg = iarg;
+        mode |= 8;
+      } else if (index == index_of_null) {
+        null_index = yget_ref(iarg);
+        fprintf(stderr, "null_index = %ld (iarg = %d)\n", null_index, iarg);
+        if (null_index < 0) {
+          y_error("keyword NULL must be set with a simple variable");
+        }
+      } else {
+        y_error("unsupported keyword");
+      }
+    }
+  }
+  if (fh == NULL) {
+    y_error("too few arguments");
+  }
+
+  /* Get array dimensions and type. */
+  critical(TRUE);
+  status = 0;
+  if (get_image_param(fh, Y_DIMSIZE - 1, NULL,
+                      &naxis, &dims[1], &ntot, &status) != 0) {
+    yfits_error(status);
+  }
+  if (naxis < 0) y_error("bad number of dimensions");
+  if (fits_get_img_equivtype(fh->fptr, &bitpix, &status)) {
+    yfits_error(status);
+  }
+
+  /* Parse sub-array options. */
+  fpix = NULL;
+  lpix = NULL;
+  ipix = NULL;
+  if (mode == 0) {
+    /* Read complete array. */
+    dims[0] = naxis;
+    first = 1;
+    number = ntot;
+  } else if (mode == 3 || mode == 7) {
+    /* Read rectangular sub-array. */
+    long d[Y_DIMSIZE], n;
+    int k;
+    fpix = ygeta_l(first_iarg, &n, d);
+    if ((d[0] != 0 && d[0] != 1) || n != naxis) {
+      y_error("bad number of coordinates for keyword FIRST");
+    }
+    lpix = ygeta_l(last_iarg, &n, d);
+    if ((d[0] != 0 && d[0] != 1) || n != naxis) {
+      y_error("bad number of coordinates for keyword LAST");
+    }
+    if (incr_iarg == -1) {
+      ipix = c;
+      for (k = 0; k < naxis; ++k) {
+        ipix[k] = 1;
+      }
+    } else {
+      ipix = ygeta_l(incr_iarg, &n, d);
+      if ((d[0] != 0 && d[0] != 1) || n != naxis) {
+        y_error("bad number of coordinates for keyword INCR");
+      }
+    }
+    for (k = 0; k < naxis; ++k) {
+      if (fpix[k] < 1 || fpix[k] > lpix[k] || lpix[k] > dims[k+1] ||
+          ipix[k] < 1 || (lpix[k] - fpix[k] + 1)%ipix[k] != 0) {
+        y_error("bad sub-array parameters (FIRST, LAST, INCR)");
+      }
+      dims[k+1] = (lpix[k] - fpix[k] + 1)/ipix[k];
+    }
+    dims[0] = naxis;
+    first = number = 0; /* avoid warnings aboutn uninitialized variables */
+  } else if (mode == 9) {
+    /* Read flat sub-array. */
+    first = ygets_l(first_iarg);
+    number = ygets_l(number_iarg);
+    if (first < 1 || number < 0 || first - 1 + number > ntot) {
+      y_error("bad range of array elements");
+    }
+    if (number == 0) {
+      ypush_nil();
+      return;
+    }
+    dims[0] = 1;
+    dims[1] = number;
+  } else {
+    y_error("bad combination of keywords FIRST, LAST, INCR, or NUMBER");
+  }
+
+  /* Get the type of the elements and create the array. */
+  if (fits_get_img_equivtype(fh->fptr, &bitpix, &status)) {
+    yfits_error(status);
+  }
+  arr = NULL;
+  datatype = -1;
+  if (bitpix > 0) {
+    if (bitpix == 8*sizeof(unsigned char)) {
+      datatype = TBYTE;
+      null.type = Y_CHAR;
+      arr = ypush_c(dims);
+    } else if (bitpix == 8*sizeof(short)) {
+      datatype = TSHORT;
+      null.type = Y_SHORT;
+      arr = ypush_s(dims);
+    } else if (bitpix == 8*sizeof(int)) {
+      datatype = TINT;
+      null.type = Y_INT;
+      arr = ypush_i(dims);
+    } else if (bitpix == 8*sizeof(long)) {
+      datatype = (sizeof(long long) == sizeof(long) ? TLONGLONG : TLONG);
+      null.type = Y_LONG;
+      arr = ypush_l(dims);
+    }
+  } else {
+    if (bitpix == -8*sizeof(float)) {
+      datatype = TFLOAT;
+      null.type = Y_FLOAT;
+      arr = ypush_f(dims);
+    } else if (bitpix == -8*sizeof(double)) {
+      datatype = TDOUBLE;
+      null.type = Y_DOUBLE;
+      arr = ypush_d(dims);
+    }
+  }
+  if (arr == NULL) y_error("unsupported data type");
+
+  /* Read the data. */
+  if (mode == 0 || mode == 9) {
+    fits_read_img(fh->fptr, datatype, first, number,
+                  &null.value, arr, &anynull, &status);
+  } else {
+    fits_read_subset(fh->fptr, datatype, fpix, lpix, ipix,
+                     &null.value, arr, &anynull, &status);
+  }
+  if (status != 0) {
+    yfits_error(status);
+  }
+
+  /* Save the 'null' value. */
+  if (null_index != -1) {
+    if (anynull == 0) {
+      ypush_nil();
+    } else {
+      push_scalar(&null);
+    }
+    yput_global(null_index, 0);
+    yarg_drop(1);
+  }
+}
+
+void
 Y_fitsio_create_img(int argc)
 {
   yfits_object* obj;
@@ -1016,63 +1226,49 @@ Y_fitsio_copy_cell2image(int argc)
 }
 
 void
-Y_fitsio_write_pix(int argc)
+Y_fitsio_write_array(int argc)
 {
-  yfits_object* fh = NULL;
-  void* buf = NULL;
+  yfits_object* fh;
+  long src_number, dst_number, first, flen;
+  long src_dims[Y_DIMSIZE];
+  long dst_dims[Y_DIMSIZE];
+  long* fpix;
+  long  lpix[Y_DIMSIZE - 1];
+  void* src;
   void* null;
-  long ntot = 0, offset, number, stride;
-  long dims[MAXDIMS];
-  long first[MAXDIMS];
-  int k, iarg, naxis = 0, type = Y_VOID, status = 0;
-  int null_iarg = -1;
-  int offset_iarg = -1;
-  int number_iarg = -1;
+  int k, type, naxis, status;
+  int iarg, first_iarg, null_iarg, first_case;
 
   /* Parse arguments. */
+  null_iarg = -1;
+  first_iarg = -1;
+  fh = NULL;
+  src = NULL;
   for (iarg = argc - 1; iarg >= 0; --iarg) {
     long index = yarg_key(iarg);
     if (index < 0) {
       /* Positional argument. */
       if (fh == NULL) {
         fh = yfits_fetch(iarg, TRUE);
-      } else if (buf == NULL) {
-        buf = ygeta_any(iarg, &ntot, NULL, &type);
+      } else if (src == NULL) {
+        src = ygeta_any(iarg, &src_number, src_dims, &type);
       } else {
         y_error("too many arguments");
       }
     } else {
       /* Keyword argument. */
       --iarg;
-      if (index == index_offset) {
-        offset_iarg = iarg;
-      } else if (index == index_null) {
-        number_iarg = iarg;
-      } else if (index == index_null) {
+      if (index == index_of_first) {
+        first_iarg = iarg;
+      } else if (index == index_of_null) {
         null_iarg = iarg;
       } else {
         y_error("unsupported keyword");
       }
     }
   }
-  if (buf == NULL) {
+  if (src == NULL) {
     y_error("too few arguments");
-  }
-  if (number_iarg == -1) {
-    number = ntot;
-  } else {
-    number = ygets_l(number_iarg);
-    if (number < 0 || number > ntot)  {
-      y_error("bad number of values to write");
-    }
-  }
-  if (offset_iarg == -1) {
-    offset = 0;
-  } else {
-    offset = ygets_l(offset_iarg);
-    if (offset < 0) {
-      y_error("bad offset");
-    }
   }
   if (null_iarg == -1) {
     null = NULL;
@@ -1110,33 +1306,81 @@ Y_fitsio_write_pix(int argc)
     type = TDBLCOMPLEX;
     break;
   default:
-    y_error("unsuported array type");
+    y_error("unsupported array type");
   }
 
-  /* Apply operation. */
+  /* Get FITS array dimensions and type. */
   critical(TRUE);
-  if (get_image_param(fh, MAXDIMS, NULL, &naxis, dims,
-                      &ntot, &status) == 0) {
-    if (naxis < 1) {
-      y_error("empty image");
-    }
-    if (offset + number > ntot) {
-      y_error("would write beyond image limits");
-    }
-    if (number > 0) {
-      stride = ntot;
-      for (k = naxis - 1; k >= 0; --k) {
-        stride /= dims[k];
-        first[k] = 1 + (offset/stride);
-        offset %= stride;
+  status = 0;
+  if (get_image_param(fh, Y_DIMSIZE - 1, NULL,
+                      &naxis, &dst_dims[1], &dst_number, &status) != 0) {
+    yfits_error(status);
+  }
+  dst_dims[0] = naxis; /* to mimic Yorick dimension list */
+  if (naxis < 0) y_error("bad number of dimensions");
+
+  /* Parse FIRST keyword to decide how to write. */
+  if (first_iarg == -1) {
+    first_case = 0;
+  } else {
+    int id = yarg_typeid(first_iarg);
+    first_case = -1;
+    if (id <= Y_LONG) {
+      int rank = yarg_rank(first_iarg);
+      if (rank == 0) {
+        first_case = 1;
+      } else if (rank == 1) {
+        first_case = 2;
       }
-      if (null == NULL) {
-        fits_write_pix(fh->fptr, type, first, number, buf, &status);
-      } else {
-        fits_write_pixnull(fh->fptr, type, first, number, buf,
-                           null, &status);
+    } else if (id == Y_VOID) {
+      first_case = 0;
+    }
+  }
+  first = 1;
+  fpix = NULL;
+  if (first_case == 0) {
+    /* Keyword FIRST unspecified or void, write the whole source array whose
+       dimensions must match those of the FITS array. */
+    for (k = 0; k <= naxis; ++k) {
+      if (src_dims[k] != dst_dims[k]) {
+        y_error("not same dimensions");
       }
     }
+  } else if (first_case == 1) {
+    /* Will write an interval of elements. */
+    first = ygets_l(first_iarg);
+    if (first < 1 || src_number + first - 1 > dst_number) {
+      y_error("out of range interval");
+    }
+  } else if (first_case == 2) {
+    /* Will write a subarray. */
+    fpix = ygeta_l(first_iarg, &flen, NULL);
+    if (flen != naxis) {
+      y_error("bad number of values in keyword FIRST");
+    }
+    if (src_dims[0] > dst_dims[0]) {
+      y_error("source array has too many dimensions");
+    }
+    for (k = 0; k < naxis; ++k) {
+      lpix[k] = fpix[k] + (k < src_dims[0] ? src_dims[k+1] - 1 : 0);
+      if (fpix[k] < 1 || lpix[k] > dst_dims[k+1]) {
+        y_error("out of range subarray");
+      }
+    }
+    if (null != NULL) {
+      y_error("NULL keyword forbidden when writing a rectangular subarray");
+    }
+  } else {
+    y_error("invalid type/rank for keyword FIRST");
+  }
+
+  /* Write the values. */
+  if (fpix != NULL) {
+    fits_write_subset(fh->fptr, type, fpix, lpix, src, &status);
+  } else if (null != NULL) {
+    fits_write_imgnull(fh->fptr, type, first, src_number, src, null, &status);
+  } else {
+    fits_write_img(fh->fptr, type, first, src_number, src, &status);
   }
   if (status != 0) {
     yfits_error(status);
@@ -1223,11 +1467,13 @@ Y_fitsio_init(int argc)
   ypush_nil();
 
   /* Define fast keyword/member indexes. */
-#define INIT(s) if (index_##s == -1L) index_##s = yget_global(#s, 0)
+#define INIT(s) if (index_of_##s == -1L) index_of_##s = yget_global(#s, 0)
   INIT(basic);
+  INIT(first);
+  INIT(incr);
+  INIT(last);
   INIT(null);
   INIT(number);
-  INIT(offset);
 #undef INIT
 }
 
@@ -1297,6 +1543,36 @@ push_string(const char* str)
   ypush_q(NULL)[0] = p_strcpy(str);
 }
 
+static void
+push_scalar(const scalar_t* s)
+{
+  switch (s->type) {
+  case Y_CHAR:
+    *ypush_c(NULL) = s->value.c;
+    break;
+  case Y_SHORT:
+    *ypush_s(NULL) = s->value.s;
+    break;
+  case Y_INT:
+     ypush_int(s->value.i);
+    break;
+  case Y_LONG:
+    ypush_long(s->value.l);
+    break;
+  case Y_FLOAT:
+    *ypush_f(NULL) = s->value.f;
+    break;
+  case Y_DOUBLE:
+     ypush_double(s->value.d);
+    break;
+  case Y_VOID:
+    ypush_nil();
+    break;
+  default:
+    y_error("unknown scalar type");
+  }
+}
+
 static char*
 fetch_path(int iarg)
 {
@@ -1359,25 +1635,37 @@ get_image_param(yfits_object* fh, int maxdims, int* bitpix_ptr,
                 int* status)
 {
   int k, naxis, bitpix;
-  critical(TRUE);
+
   if (fits_get_img_param(fh->fptr, maxdims, &bitpix, &naxis,
-                         dims, status) == 0) {
-      if (naxis > maxdims) {
-        y_error("too many dimensions");
+                         dims, status) != 0) {
+    /* An error occured, set values to avoid warnings about uninitialized
+       varaibles. */
+    if (bitpix_ptr != NULL) {
+      *bitpix_ptr = 0;
+    }
+    if (naxis_ptr != NULL) {
+      *naxis_ptr = 0;
+    }
+    if (number_ptr != NULL) {
+      *number_ptr = 0;
+    }
+  } else {
+    if (naxis > maxdims) {
+      y_error("too many dimensions");
+    }
+    if (bitpix_ptr != NULL) {
+      *bitpix_ptr = bitpix;
+    }
+    if (naxis_ptr != NULL) {
+      *naxis_ptr = naxis;
+    }
+    if (number_ptr != NULL) {
+      long number = 1;
+      for (k = 0; k < naxis; ++k) {
+        number *= dims[k];
       }
-      if (bitpix_ptr != NULL) {
-        *bitpix_ptr = bitpix;
-      }
-      if (naxis_ptr != NULL) {
-        *naxis_ptr = naxis;
-      }
-      if (number_ptr != NULL) {
-        long number = 1;
-        for (k = 0; k < naxis; ++k) {
-          number *= dims[k];
-        }
-        *number_ptr = number;
-      }
+      *number_ptr = number;
+    }
   }
   return *status;
 }
