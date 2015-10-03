@@ -502,11 +502,11 @@ extern fitsio_copy_image2cell;
 extern fitsio_write_array;
 /* DOCUMENT fitsio_write_array, fh, arr, first=..., null=...;
 
-     Write array values ARR into the current HDU of handle FH.  The current
+     Write array  values ARR into the  current HDU of handle  FH.  The current
      HDU of FH must be a FITS "IMAGE" extension.
 
      There are 3  possibilities depending on whether and how  keyword FIRST is
-     specified; in any  cases, the number of written  values is numberof(ARR).
+     specified; in  any case, the  number of written values  is numberof(ARR).
      If keyword FIRST is not specified,  the array dimensions must be the same
      as  that of  the FITS  array.   If keyword  FIRST  is set  with a  scalar
      integer, it indicates  the position (starting at 1) of  the first element
@@ -526,7 +526,7 @@ extern fitsio_write_array;
      (an error is returned if the  BLANK keyword doesn't exist).  For floating
      point  FITS arrays  the special  IEEE  NaN (Not-a-Number)  value will  be
      written into the FITS file.  Keyword NULL cannot be specified for writing
-     a rectangular sub-array (i.e., when keywords FIRST is a list of indices).
+     a rectangular sub-array (i.e., when keyword FIRST is a list of indices).
 
      This   function   implements   writing    via   the   CFITSIO   functions
      fits_write_subset, fits_write_img and fits_write_imgnull.
@@ -550,6 +550,118 @@ extern fitsio_copy_image_section;
 
    SEE ALSO: fitsio_open_file.
  */
+
+/*---------------------------------------------------------------------------*/
+/* TABLES */
+
+extern fitsio_create_tbl;
+/* DOCUMENT fitsio_create_tbl, fh, ttype, tform;
+
+     Create a new ASCII or bintable table extension. If the FITS file is
+     currently empty then a dummy primary array will be created before
+     appending the table extension to it. The tbltype parameter defines the
+     type of table and can have values of ASCII TBL or BINARY TBL.  The naxis2
+     parameter gives the initial number of rows to be created in the table,
+     and should normally be set = 0. CFITSIO will automatically increase the
+     size of the table as additional rows are written. A non-zero number of
+     rows may be specified to reserve space for that many rows, even if a
+     fewer number of rows will be written. The tunit and extname parameters
+     are optional and a null pointer may be given if they are not defined. The
+     FITS Standard recommends that only letters, digits, and the underscore
+     character be used in column names (the ttype parameter) with no embedded
+     spaces. Trailing blank characters are not significant.
+
+
+     Keyword TUNITS
+
+     Keyword EXTNAME
+
+     Keyword ASCII
+
+   SEE ALSO:
+ */
+
+extern fitsio_get_num_rows;
+extern fitsio_get_num_cols;
+extern fitsio_get_colnum;
+extern fitsio_get_colname;
+/* DOCUMENT fitsio_get_colnum(fh, template, case=);
+         or fitsio_get_colname(fh, template, case=);
+
+     fitsio_get_colname(fh, "*");
+
+     returns all column names (in order).
+
+   SEE ALSO:
+ */
+
+extern fitsio_get_coltype;
+extern fitsio_get_eqcoltype;
+/* DOCUMENT [type,repeat,width] = fitsio_get_coltype(fh, colnum);
+         or [type,repeat,width] = fitsio_get_eqcoltype(fh, colnum);
+
+     Return the data  type, vector repeat value,  and the width in  bytes of a
+     column in an ASCII or binary table.   Allowed values for the data type in
+     ASCII tables  are: TSTRING, TSHORT,  TLONG, TFLOAT, and  TDOUBLE.  Binary
+     tables  also support  these types:  TLOGICAL, TBIT,  TBYTE, TCOMPLEX  and
+     TDBLCOMPLEX.  The negative of the data  type code value is returned if it
+     is a variable length array column.  Note that in the case of a 'J' 32-bit
+     integer  binary  table  column,  these routines  will  return  data  type
+     TINT32BIT (which  in fact is equivalent  to TLONG).  With most  current C
+     compilers,  a value  in  a 'J'  column  has  the same  size  as an  'int'
+     variable,  and may  not  be equivalent  to a  'long'  variable, which  is
+     64-bits long on an increasing number of compilers.
+
+     The returned  `repeat` value  is the  vector repeat  count on  the binary
+     table TFORMn keyword value. (ASCII table columns always have repeat = 1).
+     The  returned `width`  value is  the width  in bytes  of a  single column
+     element (e.g., a '10D' binary table column  will have width = 8, an ASCII
+     table  'F12.2' column  will have  width =  12, and  a binary  table '60A'
+     character  string  column will  have  width  =  60).  Note  that  CFITSIO
+     supports  the local  convention  for specifying  arrays  of fixed  length
+     strings within a  binary table character column using the  syntax TFORM =
+     "rAw" where  'r' is the  total number of characters  (= the width  of the
+     column) and 'w' is the width of a unit string within the column.  Thus if
+     the column has TFORM = '60A12' then this means that each row of the table
+     contains  5 12-character  substrings within  the 60-character  field, and
+     thus in this  case this routine will return typecode  = TSTRING, repeat =
+     60, and width =  12.  (The TDIMn keyword may also be  used to specify the
+     unit  string length;  The pair  of keywords  TFORMn =  '60A' and  TDIMn =
+     '(12,5)' would have the same effect  as TFORMn = '60A12').  The number of
+     substrings in any  binary table character string field  can be calculated
+     by (repeat/width).
+
+     The second  routine, fitsio_get_eqcoltype is  similar except that  in the
+     case of scaled integer columns it returns the 'equivalent' data type that
+     is needed  to store the scaled  values, and not necessarily  the physical
+     data  type of  the unscaled  values  as stored  in the  FITS table.   For
+     example if a  '1I' column in a binary  table has TSCALn = 1  and TZEROn =
+     32768,  then  this column  effectively  contains  unsigned short  integer
+     values, and  thus the  returned value  of typecode  will be  TUSHORT, not
+     TSHORT.  Similarly, if a column has TTYPEn = '1I' and TSCALn = 0.12, then
+     the returned typecode will be TFLOAT.
+
+  SEE ALSO:
+*/
+
+extern fitsio_read_tdim;
+extern fitsio_decode_tdim;
+extern fitsio_write_tdim;
+/* DOCUMENT dims = fitsio_read_tdim(fh, colnum);
+         or dims = fitsio_decode_tdim(fh, str, colnum);
+         or fitsio_write_tdim, fh, colnum, dims, ...;
+
+     The returned dimension list is similar to the value returned by the
+     `dimsof()` function: [NDIMS, DIM1, DIM2, ...].  The `fitsio_write_tdim`
+     accept a dimension list specified with a variable number of arguments as
+     the `array()` function.
+
+
+   SEE ALSO: dimsof.
+ */
+
+/*---------------------------------------------------------------------------*/
+/* MISCELLANEOUS */
 
 extern fitsio_debug;
 /* DOCUMENT oldval = fitsio_debug(newval);

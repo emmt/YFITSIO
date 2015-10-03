@@ -94,12 +94,16 @@ get_image_param(yfits_object* fh, int maxdims, int* bitpix, int* naxis,
                 long dims[], long* number, int* status);
 
 /* Fast indexes to common keywords. */
+static long index_of_ascii = -1L;
 static long index_of_basic = -1L;
+static long index_of_case = -1L;
+static long index_of_extname = -1L;
 static long index_of_first = -1L;
 static long index_of_incr = -1L;
 static long index_of_last = -1L;
 static long index_of_null = -1L;
 static long index_of_number = -1L;
+static long index_of_tunit = -1L;
 
 /* A static buffer for error messages, file names, etc. */
 static char buffer[32*1024];
@@ -1434,6 +1438,383 @@ Y_fitsio_copy_image_section(int argc)
   yarg_drop(1); /* left output on top of stack */
 }
 
+static void
+check_ncols(int* tfields, long ntot)
+{
+  if (*tfields > 0) {
+    if (*tfields != ntot) {
+      y_error("number of columns mismatch");
+    }
+  } else {
+    if ((*tfields = ntot) != ntot) {
+      y_error("too many columns (integer overflow)");
+    }
+  }
+}
+
+/*---------------------------------------------------------------------------*/
+/* TABLES */
+
+void
+Y_fitsio_create_tbl(int argc)
+{
+  yfits_object* fh;
+  long nrows, ntot;
+  long dims[Y_DIMSIZE];
+  char** ttype;
+  char** tform;
+  char** tunit;
+  char* extname;
+  int status, iarg, tbltype, tfields;
+
+  tbltype = BINARY_TBL;
+  fh = NULL;
+  extname = NULL;
+  ttype = NULL;
+  tform = NULL;
+  tunit = NULL;
+  tfields = -1;
+  nrows = 0;
+  for (iarg = argc - 1; iarg >= 0; --iarg) {
+    long index = yarg_key(iarg);
+    if (index < 0) {
+      /* Positional argument. */
+      if (fh == NULL) {
+        fh = yfits_fetch(iarg, TRUE);
+      } else if (ttype == NULL) {
+        ttype = ygeta_q(iarg, &ntot, dims);
+        if (dims[0] < 1) y_error("too many dimensions for argument TTYPE");
+        check_ncols(&tfields, ntot);
+      } else if (tform == NULL) {
+        tform = ygeta_q(iarg, &ntot, dims);
+        if (dims[0] < 1) y_error("too many dimensions for argument TFORM");
+        check_ncols(&tfields, ntot);
+      } else {
+        y_error("too many arguments");
+      }
+    } else {
+      /* Keyword argument. */
+      --iarg;
+      if (index == index_of_extname) {
+        extname = ygets_q(iarg);
+      } else if (index == index_of_tunit) {
+        tunit = ygeta_q(iarg, &ntot, dims);
+        if (dims[0] < 1) y_error("too many dimensions for argument TUNIT");
+        check_ncols(&tfields, ntot);
+      } else if (index == index_of_ascii) {
+        tbltype = (yarg_true(iarg) ? ASCII_TBL : BINARY_TBL);
+        check_ncols(&tfields, ntot);
+      } else {
+        y_error("unsupported keyword");
+      }
+    }
+  }
+  if (tform == NULL) y_error("too fex arguments");
+
+  status = 0;
+  critical(TRUE);
+  if (fits_create_tbl(fh->fptr, tbltype, nrows, tfields, ttype,
+                      tform,  tunit, extname, &status) != 0) {
+    yfits_error(status);
+  }
+  ypush_nil();
+}
+
+void
+Y_fitsio_get_num_rows(int argc)
+{
+  long nrows;
+  int status;
+
+  if (argc != 1) y_error("expecting exactly one argument");
+  status = 0;
+  critical(TRUE);
+  if (fits_get_num_rows(yfits_fetch(0, TRUE)->fptr, &nrows, &status) != 0) {
+    yfits_error(status);
+  }
+  ypush_long(nrows);
+}
+
+void
+Y_fitsio_get_num_cols(int argc)
+{
+  int ncols;
+  int status;
+
+  if (argc != 1) y_error("expecting exactly one argument");
+  status = 0;
+  critical(TRUE);
+  if (fits_get_num_cols(yfits_fetch(0, TRUE)->fptr, &ncols, &status) != 0) {
+    yfits_error(status);
+  }
+  ypush_long(ncols);
+}
+
+void
+Y_fitsio_get_colnum(int argc)
+{
+  yfits_object* fh;
+  long  dims[2];
+  char* template;
+  long* result;
+  int   iarg, status, casesen, colnum, ncols, col;
+
+  fh = NULL;
+  template = NULL;
+  casesen = CASEINSEN;
+  for (iarg = argc - 1; iarg >= 0; --iarg) {
+    long index = yarg_key(iarg);
+    if (index < 0) {
+      /* Positional argument. */
+      if (fh == NULL) {
+        fh = yfits_fetch(iarg, TRUE);
+      } else if (template == NULL) {
+        template = ygets_q(iarg);
+        if (template == NULL || template[0] == 0) {
+          y_error("invalid TEMPLATE string");
+        }
+      } else {
+        y_error("too many arguments");
+      }
+    } else {
+      /* Keyword argument. */
+      --iarg;
+      if (index == index_of_case) {
+        casesen = (yarg_true(iarg) ? CASESEN : CASEINSEN);
+      } else {
+        y_error("unsupported keyword");
+      }
+    }
+  }
+  if (template == NULL) y_error("too few arguments");
+
+  critical(TRUE);
+  status = 0;
+  fits_get_colnum(fh->fptr, casesen, template, &colnum, &status);
+  if (status == 0) {
+    ypush_long(colnum);
+    return;
+  }
+  if (status == COL_NOT_FOUND) {
+    ypush_nil();
+    return;
+  }
+  ncols = 0;
+  while (status == COL_NOT_UNIQUE) {
+    ++ncols;
+    fits_get_colnum(fh->fptr, casesen, template, &colnum, &status);
+  }
+  if (status != COL_NOT_FOUND) {
+    yfits_error(status);
+  }
+  dims[0] = 1;
+  dims[1] = ncols;
+  result = ypush_l(dims);
+  status = 0;
+  for (col = 0; col < ncols; ++col) {
+    fits_get_colnum(fh->fptr, casesen, template, &colnum, &status);
+    if (status != COL_NOT_UNIQUE) {
+      yfits_error(status);
+    }
+    result[col] = colnum;
+  }
+}
+
+void
+Y_fitsio_get_colname(int argc)
+{
+  yfits_object* fh;
+  long   dims[2];
+  char   colname[80];
+  char*  template;
+  char** result;
+  int    iarg, status, casesen, colnum, ncols, col;
+
+  fh = NULL;
+  template = NULL;
+  casesen = CASEINSEN;
+  for (iarg = argc - 1; iarg >= 0; --iarg) {
+    long index = yarg_key(iarg);
+    if (index < 0) {
+      /* Positional argument. */
+      if (fh == NULL) {
+        fh = yfits_fetch(iarg, TRUE);
+      } else if (template == NULL) {
+        template = ygets_q(iarg);
+        if (template == NULL || template[0] == 0) {
+          y_error("invalid TEMPLATE string");
+        }
+      } else {
+        y_error("too many arguments");
+      }
+    } else {
+      /* Keyword argument. */
+      --iarg;
+      if (index == index_of_case) {
+        casesen = (yarg_true(iarg) ? CASESEN : CASEINSEN);
+      } else {
+        y_error("unsupported keyword");
+      }
+    }
+  }
+  if (template == NULL) y_error("too few arguments");
+
+  critical(TRUE);
+  status = 0;
+  fits_get_colname(fh->fptr, casesen, template, colname, &colnum, &status);
+  if (status == 0) {
+    push_string(colname);
+    return;
+  }
+  if (status == COL_NOT_FOUND) {
+    ypush_nil();
+    return;
+  }
+  ncols = 0;
+  while (status == COL_NOT_UNIQUE) {
+    ++ncols;
+    fits_get_colname(fh->fptr, casesen, template, colname, &colnum, &status);
+  }
+  if (status != COL_NOT_FOUND) {
+    yfits_error(status);
+  }
+  dims[0] = 1;
+  dims[1] = ncols;
+  result = ypush_q(dims);
+  status = 0;
+  for (col = 0; col < ncols; ++col) {
+    fits_get_colname(fh->fptr, casesen, template, colname, &colnum, &status);
+    if (status != COL_NOT_UNIQUE) {
+      yfits_error(status);
+    }
+    result[col] = p_strcpy(colname);
+  }
+}
+
+static void
+get_coltype(int argc, int eqcoltype)
+{
+  yfits_object* fh;
+  long  dims[2];
+  long* result;
+  long  repeat, width;
+  int   status, type, colnum;
+
+  if (argc != 2) y_error("expecting exactly 2 arguments");
+  fh = yfits_fetch(1, TRUE);
+  colnum = ygets_i(0);
+
+  critical(TRUE);
+  status = 0;
+  if (eqcoltype) {
+    fits_get_eqcoltype(fh->fptr, colnum, &type, &repeat, &width, &status);
+  } else {
+    fits_get_coltype(fh->fptr, colnum, &type, &repeat, &width, &status);
+  }
+  if (status != 0) {
+    yfits_error(status);
+  }
+  dims[0] = 1;
+  dims[1] = 3;
+  result = ypush_l(dims);
+  result[0] = type;
+  result[1] = repeat;
+  result[2] = width;
+}
+
+void
+Y_fitsio_get_coltype(int argc)
+{
+  get_coltype(argc, 0);
+}
+
+void
+Y_fitsio_get_eqcoltype(int argc)
+{
+  get_coltype(argc, 1);
+}
+
+void
+Y_fitsio_read_tdim(int argc)
+{
+  yfits_object* fh;
+  long  dims[2];
+  long  naxes[Y_DIMSIZE - 1];
+  long* result;
+  int   status, colnum, k, naxis;
+
+  if (argc != 2) y_error("expecting exactly 2 arguments");
+  fh = yfits_fetch(1, TRUE);
+  colnum = ygets_i(0);
+
+  critical(TRUE);
+  status = 0;
+  if (fits_read_tdim(fh->fptr, colnum,
+                     Y_DIMSIZE - 1, &naxis, naxes, &status) != 0) {
+    yfits_error(status);
+  }
+  dims[0] = 1;
+  dims[1] = naxis + 1;
+  result = ypush_l(dims);
+  result[0] = naxis;
+  for (k = 0; k < naxis; ++k) {
+    result[k+1] = naxes[k];
+  }
+}
+
+void
+Y_fitsio_decode_tdim(int argc)
+{
+  yfits_object* fh;
+  long  dims[2];
+  long  naxes[Y_DIMSIZE - 1];
+  long* result;
+  char* tdimstr;
+  int   status, colnum, k, naxis;
+
+  if (argc != 3) y_error("expecting exactly 3 arguments");
+  fh = yfits_fetch(2, TRUE);
+  tdimstr = ygets_q(1);
+  colnum = ygets_i(0);
+
+  critical(TRUE);
+  status = 0;
+  if (fits_decode_tdim(fh->fptr, tdimstr, colnum,
+                       Y_DIMSIZE - 1, &naxis, naxes, &status) != 0) {
+    yfits_error(status);
+  }
+  dims[0] = 1;
+  dims[1] = naxis + 1;
+  result = ypush_l(dims);
+  result[0] = naxis;
+  for (k = 0; k < naxis; ++k) {
+    result[k+1] = naxes[k];
+  }
+}
+
+void
+Y_fitsio_write_tdim(int argc)
+{
+  yfits_object* fh;
+  long dims[Y_DIMSIZE];
+  int  status, colnum;
+
+  if (argc < 2) y_error("expecting at least 2 arguments");
+  fh = yfits_fetch(argc - 1, TRUE);
+  colnum = ygets_i(argc - 2);
+  get_dimlist(argc - 3, 0, dims, Y_DIMSIZE - 1);
+
+  critical(TRUE);
+  status = 0;
+  if (fits_write_tdim(fh->fptr, colnum, dims[0], &dims[1], &status) != 0) {
+    yfits_error(status);
+  }
+  ypush_nil();
+}
+
+/*---------------------------------------------------------------------------*/
+/* MISCELLANEOUS */
+
 void
 Y_fitsio_debug(int argc)
 {
@@ -1468,12 +1849,16 @@ Y_fitsio_init(int argc)
 
   /* Define fast keyword/member indexes. */
 #define INIT(s) if (index_of_##s == -1L) index_of_##s = yget_global(#s, 0)
+  INIT(ascii);
   INIT(basic);
+  INIT(case);
+  INIT(extname);
   INIT(first);
   INIT(incr);
   INIT(last);
   INIT(null);
   INIT(number);
+  INIT(tunit);
 #undef INIT
 }
 
