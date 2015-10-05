@@ -698,14 +698,13 @@ extern fitsio_read_column;
       FITS  handle FH.   Argument COL  can be  an integer  (the column  number
       starting at  1) or a  string (the  column name).  If  optional argument,
       FIRSTROW  is given  it specifies  the first  row to  write (by  default,
-      FIRSTROW is 1).  Data conversion is automatically done (according to the
-      "TFORM"  keyword  of  the  column).   The  dimensions  of  ARR  must  be
-      consistent with those of a cell of the column (given by the value of the
-      "TDIM" keyword of the column): if the cell is a scalar, then ARR must be
-      a scalar  or a vector and  the number of written  rows is numberof(ARR);
-      otherwise, the  leading dimensions of  ARR must be  equal to those  of a
-      cell and ARR may have zero (to write a single roow) or one more trailing
-      dimension whose length is the number of rows to write.
+      FIRSTROW is 1).  The dimensions of  ARR must be consistent with those of
+      a cell of  the column (given by  the value of the "TDIM"  keyword of the
+      column): if the cell is a scalar, then  ARR must be a scalar or a vector
+      and the number of written  rows is numberof(ARR); otherwise, the leading
+      dimensions of ARR must be equal to those of a cell and ARR may have zero
+      (to write a single roow) or  one more trailing dimension whose length is
+      the number of rows to write.
 
       The function `fitsio_read_column` reads the  values of the column COL of
       the ASCII  or binary  table of the  current HDU of  the FITS  handle FH.
@@ -714,6 +713,13 @@ extern fitsio_read_column;
       be given  to specify  the first  and/or last row  to read.   By default,
       FIRSTROW is one and LASTROW is the  number of rows thus reading the rows
       if none of these two arguments is given.
+
+      Data conversion is automatically done  (according to the "TFORM" keyword
+      of the  column).  It is assumed  that Yorick `char` type  corresponds to
+      CFITSIO `TBYTE` (unsigned 8-bit  integer).  When other unsigned integers
+      are stored in  a table, they are converted into  a larger signed integer
+      type if possible (e.g., `TUSHORT` as `int`).  Logical values are read as
+      chars.
 
 
    SEE ALSO: fits_create_tbl, fits_open_table.

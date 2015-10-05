@@ -1467,11 +1467,11 @@ Y_fitsio_create_tbl(int argc)
         fh = yfits_fetch(iarg, TRUE);
       } else if (ttype == NULL) {
         ttype = ygeta_q(iarg, &ntot, dims);
-        if (dims[0] < 1) y_error("too many dimensions for argument TTYPE");
+        if (dims[0] > 1) y_error("too many dimensions for argument TTYPE");
         check_ncols(&tfields, ntot);
       } else if (tform == NULL) {
         tform = ygeta_q(iarg, &ntot, dims);
-        if (dims[0] < 1) y_error("too many dimensions for argument TFORM");
+        if (dims[0] > 1) y_error("too many dimensions for argument TFORM");
         check_ncols(&tfields, ntot);
       } else {
         y_error("too many arguments");
@@ -1483,7 +1483,7 @@ Y_fitsio_create_tbl(int argc)
         extname = ygets_q(iarg);
       } else if (index == index_of_tunit) {
         tunit = ygeta_q(iarg, &ntot, dims);
-        if (dims[0] < 1) y_error("too many dimensions for argument TUNIT");
+        if (dims[0] > 1) y_error("too many dimensions for argument TUNIT");
         check_ncols(&tfields, ntot);
       } else if (index == index_of_ascii) {
         tbltype = (yarg_true(iarg) ? ASCII_TBL : BINARY_TBL);
@@ -1955,7 +1955,7 @@ Y_fitsio_read_column(int argc)
   long number, firstrow, lastrow, nrows, null_index, repeat, width;
   long dims[Y_DIMSIZE];
   void* arr;
-  int k, type, naxis, status, colnum, anynull;
+  int k, coltype, type, naxis, status, colnum, anynull;
   int iarg, pos;
 
   /* Parse arguments. */
@@ -2000,13 +2000,13 @@ Y_fitsio_read_column(int argc)
   /* Get FITS column dimensions and type. */
   status = 0;
   fits_get_num_rows(fh->fptr, &nrows, &status);
-  fits_get_eqcoltype(fh->fptr, colnum, &type, &repeat, &width, &status);
+  fits_get_eqcoltype(fh->fptr, colnum, &coltype, &repeat, &width, &status);
   fits_read_tdim(fh->fptr, colnum, Y_DIMSIZE - 1, &naxis, &dims[1], &status);
+  if (coltype < 0) {
+    y_error("variable size arrays not yet supported");
+  }
   if (status != 0) {
     yfits_error(status);
-  }
-  if (naxis == 1 && dims[1] == 1) {
-    naxis = 0;
   }
   if (pos < 3) {
     firstrow = 1;
@@ -2017,21 +2017,61 @@ Y_fitsio_read_column(int argc)
   if (firstrow < 1 || firstrow > lastrow || lastrow > nrows) {
     y_error("invalid range of rows");
   }
+
+  /* Figure out the dimensions of the result. */
+  if (coltype == TSTRING) {
+    /* Discard leading dimension for array of strings. */
+    if (naxis < 1 || dims[1] != width) {
+      y_error("assumption failed!");
+    }
+    --naxis;
+    for (k = 1; k <= naxis; ++k) {
+      dims[k] = dims[k+1];
+    }
+  } else if (naxis == 1 && dims[1] == 1) {
+    naxis = 0;
+  }
+  dims[0] = naxis;
   if (firstrow < lastrow) {
+    /* Append a trailing dimension whose length is equal to the number of rows
+       to read. */
     if (naxis >= Y_DIMSIZE - 1) {
       y_error("too many dimensions");
     }
     dims[0] = ++naxis;
     dims[naxis] = lastrow - firstrow + 1;
-  } else {
-    dims[0] = naxis; /* to mimic Yorick dimension list */
+  }
+  number = 1;
+  for (k = 1; k <= naxis; ++k) {
+    number *= dims[k];
   }
 
   /* Create the destination array. */
-  /* FIXME: assume Yorick char is unsigned? TSTRING, TBIT and TLOGICAL */
-  switch (type) {
+  switch (coltype) {
+  case TBIT:
+    /* Reading/writing bits with datatype = TBIT results in considering that
+       each bit is stored in a single char with value 0/1. */
+    type = TBIT;
+    arr = ypush_c(dims);
+    null.type = Y_CHAR;
+    break;
+
+  case TSTRING:
+    type = TSTRING;
+    {
+      char** str = ypush_q(dims);
+      size_t size = width + 1; /* enough bytes for the longuest string */
+      long i;
+      for (i = 0; i < number; ++i) {
+        str[i] = p_malloc(size);
+      }
+      arr = str;
+    }
+    null.type = Y_CHAR; /* FIXME: */
+    break;
+
   case TBYTE:
-  case TLOGICAL: /* In tables, LOGICAL corresponds to byte. */
+  case TLOGICAL:
     type = TBYTE;
     arr = ypush_c(dims);
     null.type = Y_CHAR;
@@ -2097,10 +2137,6 @@ Y_fitsio_read_column(int argc)
     arr = NULL;
     y_error("unsupported array type");
   }
-  number = 1;
-  for (k = 1; k <= naxis; ++k) {
-    number *= dims[k];
-  }
 
   /* Read the values. */
   fits_read_col(fh->fptr, type, colnum, firstrow, 1, number,
@@ -2108,6 +2144,38 @@ Y_fitsio_read_column(int argc)
   if (status != 0) {
     yfits_error(status);
   }
+
+#if 0
+  /* Convert array of strings. */
+  if (coltype == TSTRING) {
+    char** cpy;
+    char*  tmp;
+    long i, j, k, stride;
+    if (naxis == 0) {
+      stride = 1;
+      cpy = ypush_q(NULL);
+    } else {
+      stride = dims[1];
+      number /= stride;
+      dims[1] = naxis - 1;
+      cpy = ypush_q(&dims[1]);
+    }
+    tmp = ypush_scratch(stride + 1, NULL);
+    for (i = 0; i < number; ++i) {
+      const char* src = ((const char*)arr) + i*stride;;
+
+      for (j = 0, k = -1; j < stride; ++j) {
+        if (src[j] != ' ') {
+          k = j;
+        }
+        tmp[j] = src[j];
+      }
+      tmp[++k] = '\0';
+      cpy[i] = p_memcpy(tmp, k);
+    }
+    yarg_drop(1);
+  }
+#endif
 
   /* Save the 'null' value. */
   if (null_index != -1) {
