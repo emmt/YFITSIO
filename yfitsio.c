@@ -93,9 +93,6 @@ static int
 get_image_param(yfits_object* fh, int maxdims, int* bitpix, int* naxis,
                 long dims[], long* number, int* status);
 
-/* Convert Yorick type to CFITSIO type. */
-static int get_data_type(int type);
-
 /* Fast indexes to common keywords. */
 static long index_of_ascii = -1L;
 static long index_of_basic = -1L;
@@ -1294,8 +1291,36 @@ Y_fitsio_write_array(int argc)
     }
   }
 
-  /* Convert Yorick type to CFITSIO type. */
-  type = get_data_type(type);
+  /* Convert Yorick type to CFITSIO "pixel" type. */
+  switch (type) {
+  case Y_CHAR:
+    type = TBYTE;
+    break;
+  case Y_SHORT:
+    type = TSHORT;
+    break;
+  case Y_INT:
+    type = TINT;
+    break;
+  case Y_LONG:
+    type = (sizeof(long) == 8 ? TLONGLONG : TLONG);
+    break;
+  case Y_FLOAT:
+    type = TFLOAT;
+    break;
+  case Y_DOUBLE:
+    type = TDOUBLE;
+    break;
+  case Y_COMPLEX:
+    type = TDBLCOMPLEX;
+    break;
+  case Y_STRING:
+    type = TSTRING;
+    break;
+  default:
+    y_error("unsupported array type");
+    type = -1;
+  }
 
   /* Get FITS array dimensions and type. */
   critical(TRUE);
@@ -1820,19 +1845,17 @@ Y_fitsio_write_tdim(int argc)
 {
   yfits_object* fh;
   long dims[Y_DIMSIZE];
-  int  status, colnum;
+  int  status = 0, colnum;
 
   if (argc < 2) y_error("expecting at least 2 arguments");
   fh = yfits_fetch(argc - 1, TRUE);
-  colnum = ygets_i(argc - 2);
+  critical(TRUE);
+  colnum = get_colnum(argc - 2, fh->fptr);
   get_dimlist(argc - 3, 0, dims, Y_DIMSIZE - 1);
   if (dims[0] == 0) {
     dims[0] = 1;
     dims[1] = 1;
   }
-
-  critical(TRUE);
-  status = 0;
   if (fits_write_tdim(fh->fptr, colnum, dims[0], &dims[1], &status) != 0) {
     yfits_error(status);
   }
@@ -1843,12 +1866,12 @@ void
 Y_fitsio_write_column(int argc)
 {
   yfits_object* fh;
-  long number, firstrow;
+  long number, firstrow, repeat, width;
   long dims[Y_DIMSIZE];
   long naxes[Y_DIMSIZE - 1];
   void* arr;
   void* null;
-  int k, type, naxis, status, colnum;
+  int k, type, naxis, status, colnum, coltype;
   int iarg, null_iarg, pos;
 
   /* Parse arguments. */
@@ -1867,9 +1890,9 @@ Y_fitsio_write_column(int argc)
         fh = yfits_fetch(iarg, TRUE);
         critical(TRUE);
       } else if (pos == 2) {
-        arr = ygeta_any(iarg, &number, dims, &type);
-      } else if (pos == 3) {
         colnum = get_colnum(iarg, fh->fptr);
+      } else if (pos == 3) {
+        arr = ygeta_any(iarg, &number, dims, &type);
       } else if (pos == 4) {
         firstrow = ygets_l(iarg);
       } else {
@@ -1905,18 +1928,64 @@ Y_fitsio_write_column(int argc)
     }
   }
 
-  /* Convert Yorick type to CFITSIO type. */
-  type = get_data_type(type);
-
-  /* Get column dimensions and check that dimensions (but the last one) are
-     matching. */
+  /* Get column dimensions and type, then check that types are compatible and
+     that dimensions (but the last one) are matching. */
   status = 0;
-  if (fits_read_tdim(fh->fptr, colnum,
-                     Y_DIMSIZE - 1, &naxis, naxes, &status) != 0) {
+  fits_get_eqcoltype(fh->fptr, colnum, &coltype, &repeat, &width, &status);
+  fits_read_tdim(fh->fptr, colnum, Y_DIMSIZE - 1, &naxis, naxes, &status);
+  if (status != 0) {
     yfits_error(status);
   }
-  if (naxis == 1 && naxes[0] == 1) {
-    naxis = 0;
+  if (coltype < 0) {
+    y_error("writing variable size arrays not yet implemented");
+  }
+  if (coltype == TSTRING) {
+    /* Column of strings is special. */
+    if (type != Y_STRING) {
+      y_error("expecting array of strings for this column");
+    } else {
+      type = TSTRING;
+    }
+    if (naxis < 1 || naxes[0] != width) {
+      y_error("assumption failed!");
+    }
+    --naxis;
+    for (k = 0; k < naxis; ++k) {
+      naxes[k] = naxes[k+1];
+    }
+  } else {
+    /* Non-string column. */
+    if (naxis == 1 && naxes[0] == 1) {
+      naxis = 0;
+    }
+    switch (type) {
+    case Y_CHAR:
+      type = (coltype == TBIT || coltype == TLOGICAL ? coltype : TBYTE);
+      break;
+    case Y_SHORT:
+      type = TSHORT;
+      break;
+    case Y_INT:
+      type = TINT;
+      break;
+    case Y_LONG:
+      type = (sizeof(long) == 8 ? TLONGLONG : TLONG);
+      break;
+    case Y_FLOAT:
+      type = TFLOAT;
+      break;
+    case Y_DOUBLE:
+      type = TDOUBLE;
+      break;
+    case Y_COMPLEX:
+      type = TDBLCOMPLEX;
+      break;
+    case Y_STRING:
+      type = TSTRING;
+      break;
+    default:
+      y_error("unsupported array type");
+    }
   }
   if (dims[0] != naxis + 1 && dims[0] != naxis) {
     y_error("incompatible number of dimensions");
@@ -2527,23 +2596,6 @@ get_image_param(yfits_object* fh, int maxdims, int* bitpix_ptr,
     }
   }
   return *status;
-}
-
-static int
-get_data_type(int type)
-{
-  switch (type) {
-  case Y_CHAR:    return TBYTE;
-  case Y_SHORT:   return TSHORT;
-  case Y_INT:     return TINT;
-  case Y_LONG:    return (sizeof(long) == 8 ? TLONGLONG : TLONG);
-  case Y_FLOAT:   return TFLOAT;
-  case Y_DOUBLE:  return TDOUBLE;
-  case Y_COMPLEX: return TDBLCOMPLEX;
-  default:
-    y_error("unsupported array type");
-    return -1;
-  }
 }
 
 /*

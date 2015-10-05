@@ -691,8 +691,8 @@ extern fitsio_write_tdim;
 
 extern fitsio_write_column;
 extern fitsio_read_column;
-/* DOCUMENT fitsio_write_column, fh, arr, col;
-         or fitsio_write_column, fh, arr, col, firstrow;
+/* DOCUMENT fitsio_write_column, fh, col, arr;
+         or fitsio_write_column, fh, col, arr, firstrow;
 
          or arr = fitsio_read_column(fh, col);
          or arr = fitsio_read_column(fh, col, firstrow);
