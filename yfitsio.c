@@ -59,7 +59,9 @@ static void  push_string(const char* str);
 static void  push_scalar(const scalar_t* s);
 static char* fetch_path(int iarg);
 static int   fetch_int(int iarg);
-static void  critical(int clear_errmsg);
+#define      fetch_fitsfile(iarg, flags) yfits_fetch((iarg), (flags))->fptr
+
+static void critical(int clear_errmsg);
 
 /* Retrieve dimension list from arguments of the stack.  IARG_FIRST is the
    first stack element to consider, IARG_LAST is the last one (inclusive and
@@ -83,14 +85,17 @@ static void yfits_extract(void* ptr, char* name);
 /* FITS instance functions. */
 typedef struct _yfits_object yfits_object;
 static yfits_object* yfits_push(void);
-static yfits_object* yfits_fetch(int iarg, int assert_open);
+static yfits_object* yfits_fetch(int iarg, unsigned int flags);
+#define MAY_BE_CLOSED  0
+#define NOT_CLOSED 1
+#define CRITICAL       2
 
 static const char* hdu_type_name(int type);
 
 /* Get image parameters.  Similar to fits_get_img_param but return also
    number of axes and computes number of elements. */
 static int
-get_image_param(yfits_object* fh, int maxdims, int* bitpix, int* naxis,
+get_image_param(fitsfile* fptr, int maxdims, int* bitpix, int* naxis,
                 long dims[], long* number, int* status);
 
 /* Fast indexes to common keywords. */
@@ -326,8 +331,7 @@ Y_fitsio_close_file(int argc)
   fitsfile *fptr;
 
   if (argc != 1) y_error("expecting exactly one argument");
-  obj = yfits_fetch(0, FALSE);
-  critical(TRUE);
+  obj = yfits_fetch(0, MAY_BE_CLOSED|CRITICAL);
   fptr = obj->fptr;
   if (fptr != NULL) {
     int status = 0;
@@ -346,8 +350,7 @@ Y_fitsio_delete_file(int argc)
   fitsfile *fptr;
 
   if (argc != 1) y_error("expecting exactly one argument");
-  obj = yfits_fetch(0, TRUE);
-  critical(TRUE);
+  obj = yfits_fetch(0, NOT_CLOSED|CRITICAL);
   fptr = obj->fptr;
   if (fptr != NULL) {
     int status = 0;
@@ -362,7 +365,7 @@ void
 Y_fitsio_is_open(int argc)
 {
   if (argc != 1) y_error("expecting exactly one argument");
-  ypush_int(yfits_fetch(0, FALSE)->fptr != NULL ? TRUE : FALSE);
+  ypush_int(fetch_fitsfile(0, MAY_BE_CLOSED) != NULL ? TRUE : FALSE);
 }
 
 void
@@ -375,18 +378,17 @@ Y_fitsio_is_handle(int argc)
 void
 Y_fitsio_file_name(int argc)
 {
-  yfits_object* obj;
+  fitsfile* fptr;
   char* name;
   int status = 0;
 
   if (argc != 1) y_error("expecting exactly one argument");
-  obj = yfits_fetch(0, FALSE);
-  if (obj->fptr == NULL) {
+  fptr = fetch_fitsfile(0, MAY_BE_CLOSED|CRITICAL);
+  if (fptr == NULL) {
     name = NULL;
   } else {
     name = buffer;
-    critical(TRUE);
-    if (fits_file_name(obj->fptr, name, &status) != 0) {
+    if (fits_file_name(fptr, name, &status) != 0) {
       yfits_error(status);
     }
   }
@@ -396,14 +398,13 @@ Y_fitsio_file_name(int argc)
 void
 Y_fitsio_file_mode(int argc)
 {
-  yfits_object* obj;
+  fitsfile* fptr;
   const char* mode = NULL;
   if (argc != 1) y_error("expecting exactly one argument");
-  obj = yfits_fetch(0, FALSE);
-  if (obj->fptr != NULL) {
+  fptr = fetch_fitsfile(0, MAY_BE_CLOSED|CRITICAL);
+  if (fptr != NULL) {
     int iomode, status = 0;
-    critical(TRUE);
-    if (fits_file_mode(obj->fptr, &iomode, &status) != 0) {
+    if (fits_file_mode(fptr, &iomode, &status) != 0) {
       yfits_error(status);
     }
     if (iomode == READONLY) {
@@ -418,18 +419,17 @@ Y_fitsio_file_mode(int argc)
 void
 Y_fitsio_url_type(int argc)
 {
-  yfits_object* obj;
+  fitsfile* fptr;
   char* url;
   int status = 0;
 
   if (argc != 1) y_error("expecting exactly one argument");
-  obj = yfits_fetch(0, FALSE);
-  if (obj->fptr == NULL) {
+  fptr = fetch_fitsfile(0, MAY_BE_CLOSED|CRITICAL);
+  if (fptr == NULL) {
     url = NULL;
   } else {
     url = buffer;
-    critical(TRUE);
-    if (fits_url_type(obj->fptr, url, &status) != 0) {
+    if (fits_url_type(fptr, url, &status) != 0) {
       yfits_error(status);
     }
   }
@@ -439,16 +439,15 @@ Y_fitsio_url_type(int argc)
 void
 Y_fitsio_movabs_hdu(int argc)
 {
-  yfits_object* obj;
+  fitsfile* fptr;
   int number, type;
   int status = 0;
 
   if (argc != 2) y_error("expecting exactly two arguments");
-  obj = yfits_fetch(1, TRUE);
+  fptr = fetch_fitsfile(1, NOT_CLOSED|CRITICAL);
   number = fetch_int(0);
   if (number <= 0) y_error("invalid HDU number");
-  critical(TRUE);
-  if (fits_movabs_hdu(obj->fptr, number, &type, &status) != 0) {
+  if (fits_movabs_hdu(fptr, number, &type, &status) != 0) {
     if (status != BAD_HDU_NUM || yarg_subroutine()) {
       yfits_error(status);
     }
@@ -460,15 +459,14 @@ Y_fitsio_movabs_hdu(int argc)
 void
 Y_fitsio_movrel_hdu(int argc)
 {
-  yfits_object* obj;
+  fitsfile* fptr;
   int offset, type;
   int status = 0;
 
   if (argc != 2) y_error("expecting exactly two arguments");
-  obj = yfits_fetch(1, TRUE);
+  fptr = fetch_fitsfile(1, NOT_CLOSED|CRITICAL);
   offset = fetch_int(0);
-  critical(TRUE);
-  if (fits_movrel_hdu(obj->fptr, offset, &type, &status) != 0) {
+  if (fits_movrel_hdu(fptr, offset, &type, &status) != 0) {
     if (status != BAD_HDU_NUM || yarg_subroutine()) {
       yfits_error(status);
     }
@@ -480,13 +478,13 @@ Y_fitsio_movrel_hdu(int argc)
 void
 Y_fitsio_movnam_hdu(int argc)
 {
-  yfits_object* obj;
+  fitsfile* fptr;
   char* extname;
   int type, extver;
   int status = 0;
 
   if (argc < 3 || argc > 4) y_error("expecting 3 or 4 arguments");
-  obj = yfits_fetch(argc - 1, TRUE);
+  fptr = fetch_fitsfile(argc - 1, NOT_CLOSED|CRITICAL);
   type = fetch_int(argc - 2);
   extname = ygets_q(argc - 3);
   extver = (argc >= 4 ? fetch_int(argc - 4) : 0);
@@ -494,13 +492,12 @@ Y_fitsio_movnam_hdu(int argc)
       type != ASCII_TBL && type != ANY_HDU) {
     y_error("bad HDUTYPE");
   }
-  critical(TRUE);
-  if (fits_movnam_hdu(obj->fptr, type, extname, extver, &status) != 0) {
+  if (fits_movnam_hdu(fptr, type, extname, extver, &status) != 0) {
     if (status != BAD_HDU_NUM || yarg_subroutine()) {
       yfits_error(status);
     }
     type = -1;
-  } else if (fits_get_hdu_type(obj->fptr, &type, &status) != 0) {
+  } else if (fits_get_hdu_type(fptr, &type, &status) != 0) {
     yfits_error(status);
   }
   ypush_int(type);
@@ -509,19 +506,16 @@ Y_fitsio_movnam_hdu(int argc)
 void
 Y_fitsio_get_num_hdus(int argc)
 {
-  yfits_object* obj;
+  fitsfile* fptr;
   int number;
   int status = 0;
 
   if (argc != 1) y_error("expecting exactly one argument");
-  obj = yfits_fetch(0, FALSE);
-  if (obj->fptr == NULL) {
+  fptr = fetch_fitsfile(0, MAY_BE_CLOSED|CRITICAL);
+  if (fptr == NULL) {
     number = 0;
-  } else {
-    critical(TRUE);
-    if (fits_get_num_hdus(obj->fptr, &number, &status) != 0) {
-      yfits_error(status);
-    }
+  } else if (fits_get_num_hdus(fptr, &number, &status) != 0) {
+    yfits_error(status);
   }
   ypush_long(number); /* Yorick number of elements is a long */
 }
@@ -529,16 +523,15 @@ Y_fitsio_get_num_hdus(int argc)
 void
 Y_fitsio_get_hdu_num(int argc)
 {
-  yfits_object* obj;
+  fitsfile* fptr;
   int number;
 
   if (argc != 1) y_error("expecting exactly one argument");
-  obj = yfits_fetch(0, FALSE);
-  if (obj->fptr == NULL) {
+  fptr = fetch_fitsfile(0, MAY_BE_CLOSED|CRITICAL);
+  if (fptr == NULL) {
     number = 0;
   } else {
-    critical(FALSE);
-    fits_get_hdu_num(obj->fptr, &number);
+    fits_get_hdu_num(fptr, &number);
   }
   ypush_long(number); /* Yorick number of elements is a long */
 }
@@ -546,55 +539,44 @@ Y_fitsio_get_hdu_num(int argc)
 void
 Y_fitsio_get_hdu_type(int argc)
 {
-  yfits_object* obj;
   int type;
   int status = 0;
-
   if (argc != 1) y_error("expecting exactly one argument");
-  obj = yfits_fetch(0, TRUE);
-  critical(TRUE);
-  if (fits_get_hdu_type(obj->fptr, &type, &status) != 0) {
-    yfits_error(status);
-  }
+  fits_get_hdu_type(fetch_fitsfile(0, NOT_CLOSED|CRITICAL), &type, &status);
+  if (status != 0) yfits_error(status);
   ypush_int(type);
 }
 
 void
 Y_fitsio_copy_file(int argc)
 {
-  yfits_object* inp;
-  yfits_object* out;
+  fitsfile* inp;
+  fitsfile* out;
   int previous, current, following;
   int status = 0;
-
   if (argc != 5) y_error("expecting exactly 5 arguments");
-  inp = yfits_fetch(argc - 1, TRUE);
-  out = yfits_fetch(argc - 2, TRUE);
+  inp = fetch_fitsfile(argc - 1, NOT_CLOSED|CRITICAL);
+  out = fetch_fitsfile(argc - 2, NOT_CLOSED);
   previous = yarg_true(argc - 3);
   current = yarg_true(argc - 4);
   following = yarg_true(argc - 5);
-  critical(TRUE);
-  if (fits_copy_file(inp->fptr, out->fptr, previous, current,
-                     following, &status) != 0) {
-    yfits_error(status);
-  }
+  fits_copy_file(inp, out, previous, current, following, &status);
+  if (status != 0) yfits_error(status);
   yarg_drop(3); /* left output object on top of stack */
 }
 
 void
 Y_fitsio_copy_hdu(int argc)
 {
-  yfits_object* inp;
-  yfits_object* out;
+  fitsfile* inp;
+  fitsfile* out;
   int morekeys, status = 0;
   if (argc < 2 || argc > 3) y_error("expecting 2 or 3 arguments");
-  inp = yfits_fetch(argc - 1, TRUE);
-  out = yfits_fetch(argc - 2, TRUE);
+  inp = fetch_fitsfile(argc - 1, NOT_CLOSED|CRITICAL);
+  out = fetch_fitsfile(argc - 2, NOT_CLOSED);
   morekeys = (argc >= 3 ? fetch_int(argc - 3) : 0);
-  critical(TRUE);
-  if (fits_copy_hdu(inp->fptr, out->fptr, morekeys, &status) != 0) {
-    yfits_error(status);
-  }
+  fits_copy_hdu(inp, out, morekeys, &status);
+  if (status != 0) yfits_error(status);
   if (argc > 2) yarg_drop(argc - 2); /* left output object on top of stack */
 }
 
@@ -603,45 +585,33 @@ Y_fitsio_copy_hdu(int argc)
 void
 Y_fitsio_copy_header(int argc)
 {
-  yfits_object* inp;
-  yfits_object* out;
   int status = 0;
   if (argc != 2) y_error("expecting exactly 2 arguments");
-  inp = yfits_fetch(argc - 1, TRUE);
-  out = yfits_fetch(argc - 2, TRUE);
-  critical(TRUE);
-  if (fits_copy_header(inp->fptr, out->fptr, &status) != 0) {
-    yfits_error(status);
-  }
+  fits_copy_header(fetch_fitsfile(argc - 1, NOT_CLOSED|CRITICAL),
+                   fetch_fitsfile(argc - 2, NOT_CLOSED), &status);
+  if (status != 0) yfits_error(status);
 }
 
 void
 Y_fitsio_delete_hdu(int argc)
 {
-  yfits_object* obj;
   int type, status = 0;
   if (argc != 1) y_error("expecting exactly one argument");
-  obj = yfits_fetch(0, TRUE);
-  critical(TRUE);
-  if (fits_delete_hdu(obj->fptr, &type, &status) != 0) {
-    yfits_error(status);
-  }
+  fits_delete_hdu(fetch_fitsfile(0, NOT_CLOSED|CRITICAL), &type, &status);
+  if (status != 0) yfits_error(status);
   ypush_int(type);
 }
 
 void
 Y_fitsio_get_hdrspace(int argc)
 {
-  yfits_object* obj;
-  int numkeys, morekeys, status = 0;
   long dims[2];
   long* out;
+  int numkeys, morekeys, status = 0;
   if (argc != 1) y_error("expecting exactly one argument");
-  obj = yfits_fetch(0, TRUE);
-  critical(TRUE);
-  if (fits_get_hdrspace(obj->fptr, &numkeys, &morekeys, &status) != 0) {
-    yfits_error(status);
-  }
+  fits_get_hdrspace(fetch_fitsfile(0, NOT_CLOSED|CRITICAL),
+                    &numkeys, &morekeys, &status);
+  if (status != 0) yfits_error(status);
   dims[0] = 1;
   dims[1] = 2;
   out = ypush_l(dims);
@@ -652,17 +622,22 @@ Y_fitsio_get_hdrspace(int argc)
 void
 Y_fitsio_read_keyword(int argc)
 {
-  yfits_object* obj;
+  fitsfile* fptr;
   char* key;
   char* value;
-  int len, status = 0;
+  int len, status;
 
   /* Fetch textual value. */
   if (argc != 2) y_error("expecting exactly 2 arguments");
-  obj = yfits_fetch(argc - 1, TRUE);
+  fptr = fetch_fitsfile(argc - 1, NOT_CLOSED|CRITICAL);
   key = ygets_q(argc - 2);
-  critical(TRUE);
-  if (fits_read_keyword(obj->fptr, key, buffer, NULL, &status) == 0) {
+  if (key == NULL || key[0] == '\0') {
+    status = KEY_NO_EXIST;
+  } else {
+    status = 0;
+    fits_read_keyword(fptr, key, buffer, NULL, &status);
+  }
+  if (status == 0) {
     /* Trim leading and trailing spaces and push it on top of the stack. */
     value = buffer;
     while (value[0] == ' ') {
@@ -686,7 +661,7 @@ Y_fitsio_read_keyword(int argc)
 void
 Y_fitsio_read_value(int argc)
 {
-  yfits_object* obj;
+  fitsfile* fptr;
   char* key;
   char* value;
   char* end;
@@ -696,10 +671,15 @@ Y_fitsio_read_value(int argc)
   double* z;
 
   if (argc < 2 || argc > 3) y_error("expecting 2 or 3 arguments");
-  obj = yfits_fetch(argc - 1, TRUE);
+  fptr = fetch_fitsfile(argc - 1, NOT_CLOSED|CRITICAL);
   key = ygets_q(argc - 2);
-  critical(TRUE);
-  if (fits_read_keyword(obj->fptr, key, buffer, NULL, &status) != 0) {
+  if (key == NULL || key[0] == '\0') {
+    status = KEY_NO_EXIST;
+  } else {
+    status = 0;
+    fits_read_keyword(fptr, key, buffer, NULL, &status);
+  }
+  if (status != 0) {
     if (status == KEY_NO_EXIST) {
       /* Keyword not found, return default value if any. */
       if (argc < 3) ypush_nil();
@@ -740,7 +720,7 @@ Y_fitsio_read_value(int argc)
   case '\'':
     /* String value (trim trailing spaces). */
     if (len < 2 || value[len-1] != '\'') break;
-    if (fits_read_key(obj->fptr, TSTRING, key, value, NULL, &status) != 0) {
+    if (fits_read_key(fptr, TSTRING, key, value, NULL, &status) != 0) {
       yfits_error(status);
     }
     len = strlen(value);
@@ -780,16 +760,22 @@ Y_fitsio_read_value(int argc)
 void
 Y_fitsio_read_comment(int argc)
 {
-  yfits_object* obj;
+  fitsfile* fptr;
   char* key;
   char *comment;
   char value[81];
-  int len, status = 0;
+  int len, status;
+
   if (argc != 2) y_error("expecting exactly 2 arguments");
-  obj = yfits_fetch(argc - 1, TRUE);
+  fptr = fetch_fitsfile(argc - 1, NOT_CLOSED|CRITICAL);
   key = ygets_q(argc - 2);
-  critical(TRUE);
-  if (fits_read_keyword(obj->fptr, key, value, buffer, &status) != 0) {
+  if (key == NULL || key[0] == '\0') {
+    status = KEY_NO_EXIST;
+  } else {
+    status = 0;
+    fits_read_keyword(fptr, key, value, buffer, &status);
+  }
+  if (status != 0) {
     if (status == KEY_NO_EXIST || status == VALUE_UNDEFINED) {
       /* Keyword not found or value undefined, return nothing. */
       ypush_nil();
@@ -813,14 +799,13 @@ Y_fitsio_read_comment(int argc)
 void
 Y_fitsio_read_card(int argc)
 {
-  yfits_object* obj;
+  fitsfile* fptr;
   char *key;
   int status = 0;
   if (argc != 2) y_error("expecting exactly 2 arguments");
-  obj = yfits_fetch(argc - 1, TRUE);
+  fptr = fetch_fitsfile(argc - 1, NOT_CLOSED|CRITICAL);
   key = ygets_q(argc - 2);
-  critical(TRUE);
-  if (fits_read_card(obj->fptr, key, buffer, &status) != 0) {
+  if (fits_read_card(fptr, key, buffer, &status) != 0) {
     if (status == KEY_NO_EXIST || status == VALUE_UNDEFINED) {
       ypush_nil();
       return;
@@ -833,14 +818,13 @@ Y_fitsio_read_card(int argc)
 void
 Y_fitsio_read_str(int argc)
 {
-  yfits_object* obj;
+  fitsfile* fptr;
   char *str;
   int status = 0;
   if (argc != 2) y_error("expecting exactly 2 arguments");
-  obj = yfits_fetch(argc - 1, TRUE);
+  fptr = fetch_fitsfile(argc - 1, NOT_CLOSED|CRITICAL);
   str = ygets_q(argc - 2);
-  critical(TRUE);
-  if (fits_read_str(obj->fptr, str, buffer, &status) != 0) {
+  if (fits_read_str(fptr, str, buffer, &status) != 0) {
     if (status == KEY_NO_EXIST || status == VALUE_UNDEFINED) {
       ypush_nil();
       return;
@@ -853,23 +837,20 @@ Y_fitsio_read_str(int argc)
 static void
 read_record(int argc, int split)
 {
-  yfits_object* obj;
-  int keynum, status;
+  fitsfile* fptr;
+  int keynum, status = 0;
 
   if (argc != 2) y_error("expecting exactly 2 arguments");
-  obj = yfits_fetch(argc - 1, TRUE);
+  fptr = fetch_fitsfile(argc - 1, NOT_CLOSED|CRITICAL);
   keynum = fetch_int(argc - 2);
-  if (keynum < 0) y_error("invalid keyword umber");
-
-  status = 0;
-  critical(TRUE);
+  if (keynum < 0) y_error("invalid keyword number");
   if (split) {
     char** out;
     char keyword[FLEN_KEYWORD+1];
     char value[FLEN_VALUE+1];
     char comment[FLEN_COMMENT+1];
     long dims[2];
-    if (fits_read_keyn(obj->fptr, keynum, keyword, value, comment,
+    if (fits_read_keyn(fptr, keynum, keyword, value, comment,
                      &status) == 0) {
       if (keynum == 0) {
         ypush_nil();
@@ -883,7 +864,7 @@ read_record(int argc, int split)
       }
     }
   } else {
-    if (fits_read_record(obj->fptr, keynum, buffer, &status) == 0) {
+    if (fits_read_record(fptr, keynum, buffer, &status) == 0) {
       if (keynum == 0) {
         ypush_nil();
       } else {
@@ -914,14 +895,13 @@ Y_fitsio_read_keyn(int argc)
 void
 Y_fitsio_read_key_unit(int argc)
 {
-  yfits_object* obj;
+  fitsfile* fptr;
   char *key;
   int status = 0;
   if (argc != 2) y_error("expecting exactly 2 arguments");
-  obj = yfits_fetch(argc - 1, TRUE);
+  fptr = fetch_fitsfile(argc - 1, NOT_CLOSED|CRITICAL);
   key = ygets_q(argc - 2);
-  critical(TRUE);
-  if (fits_read_key_unit(obj->fptr, key, buffer, &status) == 0) {
+  if (fits_read_key_unit(fptr, key, buffer, &status) == 0) {
     push_string(buffer[0] == '\0' ? NULL : buffer);
   } else if (status == KEY_NO_EXIST) {
     ypush_nil();
@@ -935,69 +915,55 @@ Y_fitsio_read_key_unit(int argc)
 void
 Y_fitsio_get_img_type(int argc)
 {
-  yfits_object* obj;
   int bitpix, status = 0;
   if (argc != 1) y_error("expecting exactly one argument");
-  obj = yfits_fetch(0, TRUE);
-  critical(TRUE);
-  if (fits_get_img_type(obj->fptr, &bitpix, &status) != 0) {
-    yfits_error(status);
-  }
+  fits_get_img_type(fetch_fitsfile(0, NOT_CLOSED|CRITICAL), &bitpix, &status);
+  if (status != 0) yfits_error(status);
   ypush_int(bitpix);
 }
 
 void
 Y_fitsio_get_img_equivtype(int argc)
 {
-  yfits_object* obj;
   int bitpix, status = 0;
   if (argc != 1) y_error("expecting exactly one argument");
-  obj = yfits_fetch(0, TRUE);
-  critical(TRUE);
-  if (fits_get_img_equivtype(obj->fptr, &bitpix, &status) != 0) {
-    yfits_error(status);
-  }
+  fits_get_img_equivtype(fetch_fitsfile(0, NOT_CLOSED|CRITICAL), &bitpix,
+                         &status);
+  if (status != 0) yfits_error(status);
   ypush_int(bitpix);
 }
 
 void
 Y_fitsio_get_img_dim(int argc)
 {
-  yfits_object* obj;
   int naxis, status = 0;
   if (argc != 1) y_error("expecting exactly one argument");
-  obj = yfits_fetch(0, TRUE);
-  critical(TRUE);
-  if (fits_get_img_dim(obj->fptr, &naxis, &status) != 0) {
-    yfits_error(status);
-  }
+  fits_get_img_dim(fetch_fitsfile(0, NOT_CLOSED|CRITICAL), &naxis, &status);
+  if (status != 0) yfits_error(status);
   ypush_int(naxis);
 }
 
 void
 Y_fitsio_get_img_size(int argc)
 {
-  yfits_object* obj;
+  fitsfile* fptr;
   long dims[2];
   int naxis, status = 0;
   if (argc != 1) y_error("expecting exactly one argument");
-  obj = yfits_fetch(0, TRUE);
-  critical(TRUE);
-  if (fits_get_img_dim(obj->fptr, &naxis, &status) != 0) {
-    yfits_error(status);
-  }
+  fptr = fetch_fitsfile(0, NOT_CLOSED|CRITICAL);
+  fits_get_img_dim(fptr, &naxis, &status);
+  if (status != 0) yfits_error(status);
   dims[0] = 1;
   dims[1] = naxis;
-  if (fits_get_img_size(obj->fptr, naxis, ypush_l(dims), &status) != 0) {
-    yfits_error(status);
-  }
+  fits_get_img_size(fptr, naxis, ypush_l(dims), &status);
+  if (status != 0) yfits_error(status);
 }
 
 void
 Y_fitsio_read_array(int argc)
 {
   scalar_t null;
-  yfits_object* fh;
+  fitsfile* fptr;
   long ntot, first, number;
   long dims[Y_DIMSIZE];
   long c[Y_DIMSIZE - 1];
@@ -1016,13 +982,13 @@ Y_fitsio_read_array(int argc)
   incr_iarg = -1;
   number_iarg = -1;
   mode = 0;
-  fh = NULL;
+  fptr = NULL;
   for (iarg = argc - 1; iarg >= 0; --iarg) {
     long index = yarg_key(iarg);
     if (index < 0) {
       /* Positional argument. */
-      if (fh == NULL) {
-        fh = yfits_fetch(iarg, TRUE);
+      if (fptr == NULL) {
+        fptr = fetch_fitsfile(iarg, NOT_CLOSED|CRITICAL);
       } else {
         y_error("too many arguments");
       }
@@ -1052,19 +1018,16 @@ Y_fitsio_read_array(int argc)
       }
     }
   }
-  if (fh == NULL) {
+  if (fptr == NULL) {
     y_error("too few arguments");
   }
 
   /* Get array dimensions and type. */
-  critical(TRUE);
   status = 0;
-  if (get_image_param(fh, Y_DIMSIZE - 1, NULL,
-                      &naxis, &dims[1], &ntot, &status) != 0) {
-    yfits_error(status);
-  }
+  get_image_param(fptr, Y_DIMSIZE - 1, NULL, &naxis, &dims[1], &ntot, &status);
+  if (status != 0) yfits_error(status);
   if (naxis < 0) y_error("bad number of dimensions");
-  if (fits_get_img_equivtype(fh->fptr, &bitpix, &status)) {
+  if (fits_get_img_equivtype(fptr, &bitpix, &status)) {
     yfits_error(status);
   }
 
@@ -1127,7 +1090,7 @@ Y_fitsio_read_array(int argc)
   }
 
   /* Get the type of the elements and create the array. */
-  if (fits_get_img_equivtype(fh->fptr, &bitpix, &status)) {
+  if (fits_get_img_equivtype(fptr, &bitpix, &status)) {
     yfits_error(status);
   }
   arr = NULL;
@@ -1165,10 +1128,10 @@ Y_fitsio_read_array(int argc)
 
   /* Read the data. */
   if (mode == 0 || mode == 9) {
-    fits_read_img(fh->fptr, datatype, first, number,
+    fits_read_img(fptr, datatype, first, number,
                   &null.value, arr, &anynull, &status);
   } else {
-    fits_read_subset(fh->fptr, datatype, fpix, lpix, ipix,
+    fits_read_subset(fptr, datatype, fpix, lpix, ipix,
                      &null.value, arr, &anynull, &status);
   }
   if (status != 0) {
@@ -1190,15 +1153,14 @@ Y_fitsio_read_array(int argc)
 void
 Y_fitsio_create_img(int argc)
 {
-  yfits_object* obj;
+  fitsfile* fptr;
   long dims[MAXDIMS + 1];
   int bitpix, status = 0;
   if (argc < 2) y_error("not enough arguments");
-  obj = yfits_fetch(argc - 1, TRUE);
+  fptr = fetch_fitsfile(argc - 1, NOT_CLOSED|CRITICAL);
   bitpix = fetch_int(argc - 2);
   get_dimlist(argc - 3, 0, dims, MAXDIMS);
-  critical(TRUE);
-  if (fits_create_img(obj->fptr, bitpix, dims[0], &dims[1], &status) != 0) {
+  if (fits_create_img(fptr, bitpix, dims[0], &dims[1], &status) != 0) {
     yfits_error(status);
   }
   yarg_drop(argc - 1);
@@ -1207,32 +1169,29 @@ Y_fitsio_create_img(int argc)
 void
 Y_fitsio_copy_cell2image(int argc)
 {
-  yfits_object* inp;
-  yfits_object* out;
+  fitsfile* inp;
+  fitsfile* out;
   char* colname;
   long rownum;
   int status = 0;
 
   if (argc != 5) y_error("expecting exactly 4 arguments");
-  inp = yfits_fetch(argc - 1, TRUE);
-  out = yfits_fetch(argc - 2, TRUE);
+  inp = fetch_fitsfile(argc - 1, NOT_CLOSED|CRITICAL);
+  out = fetch_fitsfile(argc - 2, NOT_CLOSED);
   colname = ygets_q(argc - 3);
   rownum = ygets_l(argc - 4);
   if (colname == NULL || colname[0] == '\0') {
     y_error("invalid column name");
   }
-  critical(TRUE);
-  if (fits_copy_cell2image(inp->fptr, out->fptr, colname,
-                           rownum, &status) != 0) {
-    yfits_error(status);
-  }
+  fits_copy_cell2image(inp, out, colname, rownum, &status);
+  if (status != 0) yfits_error(status);
   yarg_drop(2); /* left output object on top of stack */
 }
 
 void
 Y_fitsio_write_array(int argc)
 {
-  yfits_object* fh;
+  fitsfile* fptr;
   long src_number, dst_number, first, flen;
   long src_dims[Y_DIMSIZE];
   long dst_dims[Y_DIMSIZE];
@@ -1246,14 +1205,14 @@ Y_fitsio_write_array(int argc)
   /* Parse arguments. */
   null_iarg = -1;
   first_iarg = -1;
-  fh = NULL;
+  fptr = NULL;
   src = NULL;
   for (iarg = argc - 1; iarg >= 0; --iarg) {
     long index = yarg_key(iarg);
     if (index < 0) {
       /* Positional argument. */
-      if (fh == NULL) {
-        fh = yfits_fetch(iarg, TRUE);
+      if (fptr == NULL) {
+        fptr = fetch_fitsfile(iarg, NOT_CLOSED|CRITICAL);
       } else if (src == NULL) {
         src = ygeta_any(iarg, &src_number, src_dims, &type);
       } else {
@@ -1323,12 +1282,10 @@ Y_fitsio_write_array(int argc)
   }
 
   /* Get FITS array dimensions and type. */
-  critical(TRUE);
   status = 0;
-  if (get_image_param(fh, Y_DIMSIZE - 1, NULL,
-                      &naxis, &dst_dims[1], &dst_number, &status) != 0) {
-    yfits_error(status);
-  }
+  get_image_param(fptr, Y_DIMSIZE - 1, NULL, &naxis, &dst_dims[1],
+                  &dst_number, &status);
+  if (status != 0) yfits_error(status);
   dst_dims[0] = naxis; /* to mimic Yorick dimension list */
   if (naxis < 0) y_error("bad number of dimensions");
 
@@ -1389,11 +1346,11 @@ Y_fitsio_write_array(int argc)
 
   /* Write the values. */
   if (fpix != NULL) {
-    fits_write_subset(fh->fptr, type, fpix, lpix, src, &status);
+    fits_write_subset(fptr, type, fpix, lpix, src, &status);
   } else if (null != NULL) {
-    fits_write_imgnull(fh->fptr, type, first, src_number, src, null, &status);
+    fits_write_imgnull(fptr, type, first, src_number, src, null, &status);
   } else {
-    fits_write_img(fh->fptr, type, first, src_number, src, &status);
+    fits_write_img(fptr, type, first, src_number, src, &status);
   }
   if (status != 0) {
     yfits_error(status);
@@ -1404,15 +1361,15 @@ Y_fitsio_write_array(int argc)
 void
 Y_fitsio_copy_image2cell(int argc)
 {
-  yfits_object* inp;
-  yfits_object* out;
+  fitsfile* inp;
+  fitsfile* out;
   char* colname;
   long rownum, longval;
   int flag, status = 0;
 
   if (argc != 5) y_error("expecting exactly 5 arguments");
-  inp = yfits_fetch(argc - 1, TRUE);
-  out = yfits_fetch(argc - 2, TRUE);
+  inp = fetch_fitsfile(argc - 1, NOT_CLOSED|CRITICAL);
+  out = fetch_fitsfile(argc - 2, NOT_CLOSED);
   colname = ygets_q(argc - 3);
   rownum  = ygets_l(argc - 4);
   longval = ygets_l(argc - 5);
@@ -1421,29 +1378,27 @@ Y_fitsio_copy_image2cell(int argc)
   if (colname == NULL || colname[0] == '\0') {
     y_error("invalid column name");
   }
-  critical(TRUE);
-  if (fits_copy_image2cell(inp->fptr, out->fptr, colname,
-                           rownum, flag, &status) != 0) {
-    yfits_error(status);
-  }
+  fits_copy_image2cell(inp, out, colname, rownum, flag, &status);
+  if (status != 0) yfits_error(status);
   yarg_drop(3); /* left output object on top of stack */
 }
 
 void
 Y_fitsio_copy_image_section(int argc)
 {
-  yfits_object* inp;
-  yfits_object* out;
+  fitsfile* inp;
+  fitsfile* out;
   char* section;
   int status = 0;
   if (argc != 3) y_error("expecting exactly 3 arguments");
-  inp = yfits_fetch(2, TRUE);
-  out = yfits_fetch(1, TRUE);
+  inp = fetch_fitsfile(2, NOT_CLOSED|CRITICAL);
+  out = fetch_fitsfile(1, NOT_CLOSED);
   section = ygets_q(0);
-  critical(TRUE);
-  if (fits_copy_image_section(inp->fptr, out->fptr, section, &status) != 0) {
-    yfits_error(status);
+  if (section == NULL || section[0] == '\0') {
+    y_error("invalid section string");
   }
+  fits_copy_image_section(inp, out, section, &status);
+  if (status != 0) yfits_error(status);
   yarg_drop(1); /* left output on top of stack */
 }
 
@@ -1467,7 +1422,7 @@ check_ncols(int* tfields, long ntot)
 void
 Y_fitsio_create_tbl(int argc)
 {
-  yfits_object* fh;
+  fitsfile* fptr;
   long nrows, ntot;
   long dims[Y_DIMSIZE];
   char** ttype;
@@ -1477,7 +1432,7 @@ Y_fitsio_create_tbl(int argc)
   int status, iarg, tbltype, tfields;
 
   tbltype = BINARY_TBL;
-  fh = NULL;
+  fptr = NULL;
   extname = NULL;
   ttype = NULL;
   tform = NULL;
@@ -1488,8 +1443,8 @@ Y_fitsio_create_tbl(int argc)
     long index = yarg_key(iarg);
     if (index < 0) {
       /* Positional argument. */
-      if (fh == NULL) {
-        fh = yfits_fetch(iarg, TRUE);
+      if (fptr == NULL) {
+        fptr = fetch_fitsfile(iarg, NOT_CLOSED|CRITICAL);
       } else if (ttype == NULL) {
         ttype = ygeta_q(iarg, &ntot, dims);
         if (dims[0] > 1) y_error("too many dimensions for argument TTYPE");
@@ -1518,11 +1473,9 @@ Y_fitsio_create_tbl(int argc)
       }
     }
   }
-  if (tform == NULL) y_error("too fex arguments");
-
+  if (tform == NULL) y_error("too few arguments");
   status = 0;
-  critical(TRUE);
-  if (fits_create_tbl(fh->fptr, tbltype, nrows, tfields, ttype,
+  if (fits_create_tbl(fptr, tbltype, nrows, tfields, ttype,
                       tform,  tunit, extname, &status) != 0) {
     yfits_error(status);
   }
@@ -1533,14 +1486,10 @@ void
 Y_fitsio_get_num_rows(int argc)
 {
   long nrows;
-  int status;
-
+  int status = 0;
   if (argc != 1) y_error("expecting exactly one argument");
-  status = 0;
-  critical(TRUE);
-  if (fits_get_num_rows(yfits_fetch(0, TRUE)->fptr, &nrows, &status) != 0) {
-    yfits_error(status);
-  }
+  fits_get_num_rows(fetch_fitsfile(0, NOT_CLOSED|CRITICAL), &nrows, &status);
+  if (status != 0) yfits_error(status);
   ypush_long(nrows);
 }
 
@@ -1548,35 +1497,31 @@ void
 Y_fitsio_get_num_cols(int argc)
 {
   int ncols;
-  int status;
-
+  int status = 0;
   if (argc != 1) y_error("expecting exactly one argument");
-  status = 0;
-  critical(TRUE);
-  if (fits_get_num_cols(yfits_fetch(0, TRUE)->fptr, &ncols, &status) != 0) {
-    yfits_error(status);
-  }
+  fits_get_num_cols(fetch_fitsfile(0, NOT_CLOSED|CRITICAL), &ncols, &status);
+  if (status != 0) yfits_error(status);
   ypush_long(ncols);
 }
 
 void
 Y_fitsio_get_colnum(int argc)
 {
-  yfits_object* fh;
+  fitsfile* fptr;
   long  dims[2];
   char* template;
   long* result;
   int   iarg, status, casesen, colnum, ncols, col;
 
-  fh = NULL;
+  fptr = NULL;
   template = NULL;
   casesen = CASEINSEN;
   for (iarg = argc - 1; iarg >= 0; --iarg) {
     long index = yarg_key(iarg);
     if (index < 0) {
       /* Positional argument. */
-      if (fh == NULL) {
-        fh = yfits_fetch(iarg, TRUE);
+      if (fptr == NULL) {
+        fptr = fetch_fitsfile(iarg, NOT_CLOSED|CRITICAL);
       } else if (template == NULL) {
         template = ygets_q(iarg);
         if (template == NULL || template[0] == 0) {
@@ -1597,9 +1542,8 @@ Y_fitsio_get_colnum(int argc)
   }
   if (template == NULL) y_error("too few arguments");
 
-  critical(TRUE);
   status = 0;
-  fits_get_colnum(fh->fptr, casesen, template, &colnum, &status);
+  fits_get_colnum(fptr, casesen, template, &colnum, &status);
   if (status == 0) {
     ypush_long(colnum);
     return;
@@ -1611,7 +1555,7 @@ Y_fitsio_get_colnum(int argc)
   ncols = 0;
   while (status == COL_NOT_UNIQUE) {
     ++ncols;
-    fits_get_colnum(fh->fptr, casesen, template, &colnum, &status);
+    fits_get_colnum(fptr, casesen, template, &colnum, &status);
   }
   if (status != COL_NOT_FOUND) {
     yfits_error(status);
@@ -1621,7 +1565,7 @@ Y_fitsio_get_colnum(int argc)
   result = ypush_l(dims);
   status = 0;
   for (col = 0; col < ncols; ++col) {
-    fits_get_colnum(fh->fptr, casesen, template, &colnum, &status);
+    fits_get_colnum(fptr, casesen, template, &colnum, &status);
     if (status != COL_NOT_UNIQUE) {
       yfits_error(status);
     }
@@ -1632,22 +1576,22 @@ Y_fitsio_get_colnum(int argc)
 void
 Y_fitsio_get_colname(int argc)
 {
-  yfits_object* fh;
+  fitsfile* fptr;
   long   dims[2];
   char   colname[80];
   char*  template;
   char** result;
   int    iarg, status, casesen, colnum, ncols, col;
 
-  fh = NULL;
+  fptr = NULL;
   template = NULL;
   casesen = CASEINSEN;
   for (iarg = argc - 1; iarg >= 0; --iarg) {
     long index = yarg_key(iarg);
     if (index < 0) {
       /* Positional argument. */
-      if (fh == NULL) {
-        fh = yfits_fetch(iarg, TRUE);
+      if (fptr == NULL) {
+        fptr = fetch_fitsfile(iarg, NOT_CLOSED|CRITICAL);
       } else if (template == NULL) {
         template = ygets_q(iarg);
         if (template == NULL || template[0] == 0) {
@@ -1668,9 +1612,8 @@ Y_fitsio_get_colname(int argc)
   }
   if (template == NULL) y_error("too few arguments");
 
-  critical(TRUE);
   status = 0;
-  fits_get_colname(fh->fptr, casesen, template, colname, &colnum, &status);
+  fits_get_colname(fptr, casesen, template, colname, &colnum, &status);
   if (status == 0) {
     push_string(colname);
     return;
@@ -1682,7 +1625,7 @@ Y_fitsio_get_colname(int argc)
   ncols = 0;
   while (status == COL_NOT_UNIQUE) {
     ++ncols;
-    fits_get_colname(fh->fptr, casesen, template, colname, &colnum, &status);
+    fits_get_colname(fptr, casesen, template, colname, &colnum, &status);
   }
   if (status != COL_NOT_FOUND) {
     yfits_error(status);
@@ -1692,7 +1635,7 @@ Y_fitsio_get_colname(int argc)
   result = ypush_q(dims);
   status = 0;
   for (col = 0; col < ncols; ++col) {
-    fits_get_colname(fh->fptr, casesen, template, colname, &colnum, &status);
+    fits_get_colname(fptr, casesen, template, colname, &colnum, &status);
     if (status != COL_NOT_UNIQUE) {
       yfits_error(status);
     }
@@ -1745,20 +1688,19 @@ get_colnum(int iarg, fitsfile *fptr)
 static void
 get_coltype(int argc, int eqcoltype)
 {
-  yfits_object* fh;
+  fitsfile* fptr;
   long  dims[2];
   long* result;
   long  repeat, width;
   int   status = 0, type, colnum;
 
   if (argc != 2) y_error("expecting exactly 2 arguments");
-  fh = yfits_fetch(1, TRUE);
-  critical(TRUE);
-  colnum = get_colnum(0, fh->fptr);
+  fptr = fetch_fitsfile(1, NOT_CLOSED|CRITICAL);
+  colnum = get_colnum(0, fptr);
   if (eqcoltype) {
-    fits_get_eqcoltype(fh->fptr, colnum, &type, &repeat, &width, &status);
+    fits_get_eqcoltype(fptr, colnum, &type, &repeat, &width, &status);
   } else {
-    fits_get_coltype(fh->fptr, colnum, &type, &repeat, &width, &status);
+    fits_get_coltype(fptr, colnum, &type, &repeat, &width, &status);
   }
   if (status != 0) {
     yfits_error(status);
@@ -1805,15 +1747,14 @@ push_tdim(int naxis, long naxes[])
 void
 Y_fitsio_read_tdim(int argc)
 {
-  yfits_object* fh;
+  fitsfile* fptr;
   long  naxes[Y_DIMSIZE - 1];
   int   status = 0, colnum, naxis;
 
   if (argc != 2) y_error("expecting exactly 2 arguments");
-  fh = yfits_fetch(1, TRUE);
-  critical(TRUE);
-  colnum = get_colnum(0, fh->fptr);
-  if (fits_read_tdim(fh->fptr, colnum,
+  fptr = fetch_fitsfile(1, NOT_CLOSED|CRITICAL);
+  colnum = get_colnum(0, fptr);
+  if (fits_read_tdim(fptr, colnum,
                      Y_DIMSIZE - 1, &naxis, naxes, &status) != 0) {
     yfits_error(status);
   }
@@ -1823,17 +1764,16 @@ Y_fitsio_read_tdim(int argc)
 void
 Y_fitsio_decode_tdim(int argc)
 {
-  yfits_object* fh;
+  fitsfile* fptr;
   long  naxes[Y_DIMSIZE - 1];
   char* tdimstr;
   int   status = 0, colnum, naxis;
 
   if (argc != 3) y_error("expecting exactly 3 arguments");
-  fh = yfits_fetch(2, TRUE);
+  fptr = fetch_fitsfile(2, NOT_CLOSED|CRITICAL);
   tdimstr = ygets_q(1);
-  critical(TRUE);
-  colnum = get_colnum(0, fh->fptr);
-  if (fits_decode_tdim(fh->fptr, tdimstr, colnum,
+  colnum = get_colnum(0, fptr);
+  if (fits_decode_tdim(fptr, tdimstr, colnum,
                        Y_DIMSIZE - 1, &naxis, naxes, &status) != 0) {
     yfits_error(status);
   }
@@ -1843,20 +1783,19 @@ Y_fitsio_decode_tdim(int argc)
 void
 Y_fitsio_write_tdim(int argc)
 {
-  yfits_object* fh;
+  fitsfile* fptr;
   long dims[Y_DIMSIZE];
   int  status = 0, colnum;
 
   if (argc < 2) y_error("expecting at least 2 arguments");
-  fh = yfits_fetch(argc - 1, TRUE);
-  critical(TRUE);
-  colnum = get_colnum(argc - 2, fh->fptr);
+  fptr = fetch_fitsfile(argc - 1, NOT_CLOSED|CRITICAL);
+  colnum = get_colnum(argc - 2, fptr);
   get_dimlist(argc - 3, 0, dims, Y_DIMSIZE - 1);
   if (dims[0] == 0) {
     dims[0] = 1;
     dims[1] = 1;
   }
-  if (fits_write_tdim(fh->fptr, colnum, dims[0], &dims[1], &status) != 0) {
+  if (fits_write_tdim(fptr, colnum, dims[0], &dims[1], &status) != 0) {
     yfits_error(status);
   }
   ypush_nil();
@@ -1865,7 +1804,7 @@ Y_fitsio_write_tdim(int argc)
 void
 Y_fitsio_write_column(int argc)
 {
-  yfits_object* fh;
+  fitsfile* fptr;
   long number, firstrow, repeat, width;
   long dims[Y_DIMSIZE];
   long naxes[Y_DIMSIZE - 1];
@@ -1878,7 +1817,7 @@ Y_fitsio_write_column(int argc)
   null_iarg = -1;
   firstrow = 1;
   colnum = -1;
-  fh = NULL;
+  fptr = NULL;
   arr = NULL;
   pos = 0;
   for (iarg = argc - 1; iarg >= 0; --iarg) {
@@ -1887,10 +1826,9 @@ Y_fitsio_write_column(int argc)
       /* Positional argument. */
       ++pos;
       if (pos == 1) {
-        fh = yfits_fetch(iarg, TRUE);
-        critical(TRUE);
+        fptr = fetch_fitsfile(iarg, NOT_CLOSED|CRITICAL);
       } else if (pos == 2) {
-        colnum = get_colnum(iarg, fh->fptr);
+        colnum = get_colnum(iarg, fptr);
       } else if (pos == 3) {
         arr = ygeta_any(iarg, &number, dims, &type);
       } else if (pos == 4) {
@@ -1931,8 +1869,8 @@ Y_fitsio_write_column(int argc)
   /* Get column dimensions and type, then check that types are compatible and
      that dimensions (but the last one) are matching. */
   status = 0;
-  fits_get_eqcoltype(fh->fptr, colnum, &coltype, &repeat, &width, &status);
-  fits_read_tdim(fh->fptr, colnum, Y_DIMSIZE - 1, &naxis, naxes, &status);
+  fits_get_eqcoltype(fptr, colnum, &coltype, &repeat, &width, &status);
+  fits_read_tdim(fptr, colnum, Y_DIMSIZE - 1, &naxis, naxes, &status);
   if (status != 0) {
     yfits_error(status);
   }
@@ -1998,10 +1936,10 @@ Y_fitsio_write_column(int argc)
 
   /* Write the values. */
   if (null == NULL) {
-    fits_write_col(fh->fptr, type, colnum, firstrow, 1,
+    fits_write_col(fptr, type, colnum, firstrow, 1,
                    number, arr, &status);
   } else {
-    fits_write_colnull(fh->fptr, type, colnum, firstrow, 1,
+    fits_write_colnull(fptr, type, colnum, firstrow, 1,
                        number, arr, null, &status);
   }
   if (status != 0) {
@@ -2014,7 +1952,7 @@ void
 Y_fitsio_read_column(int argc)
 {
   scalar_t null;
-  yfits_object* fh;
+  fitsfile* fptr;
   long number, firstrow, lastrow, nrows, null_index, repeat, width;
   long dims[Y_DIMSIZE];
   void* arr;
@@ -2026,7 +1964,7 @@ Y_fitsio_read_column(int argc)
   firstrow = -1;
   lastrow = -1;
   colnum = -1;
-  fh = NULL;
+  fptr = NULL;
   arr = NULL;
   pos = 0;
   for (iarg = argc - 1; iarg >= 0; --iarg) {
@@ -2035,10 +1973,9 @@ Y_fitsio_read_column(int argc)
       /* Positional argument. */
       ++pos;
       if (pos == 1) {
-        fh = yfits_fetch(iarg, TRUE);
-        critical(TRUE);
+        fptr = fetch_fitsfile(iarg, NOT_CLOSED|CRITICAL);
       } else if (pos == 2) {
-        colnum = get_colnum(iarg, fh->fptr);
+        colnum = get_colnum(iarg, fptr);
       } else if (pos == 3) {
         firstrow = ygets_l(iarg);
       } else if (pos == 4) {
@@ -2062,9 +1999,9 @@ Y_fitsio_read_column(int argc)
 
   /* Get FITS column dimensions and type. */
   status = 0;
-  fits_get_num_rows(fh->fptr, &nrows, &status);
-  fits_get_eqcoltype(fh->fptr, colnum, &coltype, &repeat, &width, &status);
-  fits_read_tdim(fh->fptr, colnum, Y_DIMSIZE - 1, &naxis, &dims[1], &status);
+  fits_get_num_rows(fptr, &nrows, &status);
+  fits_get_eqcoltype(fptr, colnum, &coltype, &repeat, &width, &status);
+  fits_read_tdim(fptr, colnum, Y_DIMSIZE - 1, &naxis, &dims[1], &status);
   if (coltype < 0) {
     y_error("variable size arrays not yet supported");
   }
@@ -2202,7 +2139,7 @@ Y_fitsio_read_column(int argc)
   }
 
   /* Read the values. */
-  fits_read_col(fh->fptr, type, colnum, firstrow, 1, number,
+  fits_read_col(fptr, type, colnum, firstrow, 1, number,
                 &null.value, arr, &anynull, &status);
   if (status != 0) {
     yfits_error(status);
@@ -2260,10 +2197,8 @@ Y_fitsio_write_chksum(int argc)
 {
   int status = 0;
   if (argc != 1) y_error("expecting exactly one argument");
-  critical(TRUE);
-  if (fits_write_chksum(yfits_fetch(0, TRUE)->fptr, &status) != 0) {
-    yfits_error(status);
-  }
+  fits_write_chksum(yfits_fetch(0, NOT_CLOSED|CRITICAL)->fptr, &status);
+  if (status != 0) yfits_error(status);
   ypush_nil();
 }
 
@@ -2272,10 +2207,8 @@ Y_fitsio_update_chksum(int argc)
 {
   int status = 0;
   if (argc != 1) y_error("expecting exactly one argument");
-  critical(TRUE);
-  if (fits_update_chksum(yfits_fetch(0, TRUE)->fptr, &status) != 0) {
-    yfits_error(status);
-  }
+  fits_update_chksum(yfits_fetch(0, NOT_CLOSED|CRITICAL)->fptr, &status);
+  if (status != 0) yfits_error(status);
   ypush_nil();
 }
 
@@ -2284,16 +2217,12 @@ Y_fitsio_verify_chksum(int argc)
 {
   long dims[] = {1, 2};
   int* result;
-  int status;
-
+  int status = 0;
   if (argc != 1) y_error("expecting exactly one argument");
   result = ypush_i(dims);
-  critical(TRUE);
-  status = 0;
-  if (fits_verify_chksum(yfits_fetch(1, TRUE)->fptr,
-                         &result[0], &result[1], &status) != 0) {
-    yfits_error(status);
-  }
+  fits_verify_chksum(yfits_fetch(1, NOT_CLOSED|CRITICAL)->fptr,
+                     &result[0], &result[1], &status);
+  if (status != 0) yfits_error(status);
 }
 
 void
@@ -2301,16 +2230,12 @@ Y_fitsio_get_chksum(int argc)
 {
   long dims[] = {1, 2};
   unsigned long* result;
-  int status;
-
+  int status = 0;
   if (argc != 1) y_error("expecting exactly one argument");
   result = (unsigned long*)ypush_l(dims);
-  critical(TRUE);
-  status = 0;
-  if (fits_get_chksum(yfits_fetch(1, TRUE)->fptr,
-                      &result[0], &result[1], &status) != 0) {
-    yfits_error(status);
-  }
+  fits_get_chksum(yfits_fetch(1, NOT_CLOSED|CRITICAL)->fptr,
+                  &result[0], &result[1], &status);
+  if (status != 0) yfits_error(status);
 }
 
 void
@@ -2415,10 +2340,16 @@ yfits_push(void)
 }
 
 static yfits_object*
-yfits_fetch(int iarg, int assert_open)
+yfits_fetch(int iarg, unsigned int flags)
 {
   yfits_object* obj = (yfits_object*)yget_obj(iarg, &yfits_type);
-  if (assert_open && obj->fptr == NULL) y_error("FITS file has been closed");
+  if ((flags & (NOT_CLOSED|MAY_BE_CLOSED)) == NOT_CLOSED
+      && obj->fptr == NULL) {
+    y_error("FITS file has been closed");
+  }
+  if ((flags & CRITICAL) == CRITICAL) {
+    critical(TRUE);
+  }
   return obj;
 }
 
@@ -2558,41 +2489,43 @@ get_dimlist(int iarg_first, int iarg_last,
 }
 
 static int
-get_image_param(yfits_object* fh, int maxdims, int* bitpix_ptr,
+get_image_param(fitsfile* fptr, int maxdims, int* bitpix_ptr,
                 int* naxis_ptr, long dims[], long* number_ptr,
                 int* status)
 {
   int k, naxis, bitpix;
 
-  if (fits_get_img_param(fh->fptr, maxdims, &bitpix, &naxis,
-                         dims, status) != 0) {
-    /* An error occured, set values to avoid warnings about uninitialized
-       varaibles. */
-    if (bitpix_ptr != NULL) {
-      *bitpix_ptr = 0;
-    }
-    if (naxis_ptr != NULL) {
-      *naxis_ptr = 0;
-    }
-    if (number_ptr != NULL) {
-      *number_ptr = 0;
-    }
-  } else {
-    if (naxis > maxdims) {
-      y_error("too many dimensions");
-    }
-    if (bitpix_ptr != NULL) {
-      *bitpix_ptr = bitpix;
-    }
-    if (naxis_ptr != NULL) {
-      *naxis_ptr = naxis;
-    }
-    if (number_ptr != NULL) {
-      long number = 1;
-      for (k = 0; k < naxis; ++k) {
-        number *= dims[k];
+  if (*status == 0) {
+    if (fits_get_img_param(fptr, maxdims, &bitpix, &naxis,
+                           dims, status) != 0) {
+      /* An error occured, set values to avoid warnings about uninitialized
+         varaibles. */
+      if (bitpix_ptr != NULL) {
+        *bitpix_ptr = 0;
       }
-      *number_ptr = number;
+      if (naxis_ptr != NULL) {
+        *naxis_ptr = 0;
+      }
+      if (number_ptr != NULL) {
+        *number_ptr = 0;
+      }
+    } else {
+      if (naxis > maxdims) {
+        y_error("too many dimensions");
+      }
+      if (bitpix_ptr != NULL) {
+        *bitpix_ptr = bitpix;
+      }
+      if (naxis_ptr != NULL) {
+        *naxis_ptr = naxis;
+      }
+      if (number_ptr != NULL) {
+        long number = 1;
+        for (k = 0; k < naxis; ++k) {
+          number *= dims[k];
+        }
+        *number_ptr = number;
+      }
     }
   }
   return *status;
