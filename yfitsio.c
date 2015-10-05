@@ -93,6 +93,9 @@ static int
 get_image_param(yfits_object* fh, int maxdims, int* bitpix, int* naxis,
                 long dims[], long* number, int* status);
 
+/* Convert Yorick type to CFITSIO type. */
+static int get_data_type(int type);
+
 /* Fast indexes to common keywords. */
 static long index_of_ascii = -1L;
 static long index_of_basic = -1L;
@@ -1292,31 +1295,7 @@ Y_fitsio_write_array(int argc)
   }
 
   /* Convert Yorick type to CFITSIO type. */
-  switch (type) {
-  case Y_CHAR:
-    type = TBYTE;
-    break;
-  case Y_SHORT:
-    type = TSHORT;
-    break;
-  case Y_INT:
-    type = TINT;
-    break;
-  case Y_LONG:
-    type = (sizeof(long) == 8 ? TLONGLONG : TLONG);
-    break;
-  case Y_FLOAT:
-    type = TFLOAT;
-    break;
-  case Y_DOUBLE:
-    type = TDOUBLE;
-    break;
-  case Y_COMPLEX:
-    type = TDBLCOMPLEX;
-    break;
-  default:
-    y_error("unsupported array type");
-  }
+  type = get_data_type(type);
 
   /* Get FITS array dimensions and type. */
   critical(TRUE);
@@ -1739,24 +1718,15 @@ Y_fitsio_get_eqcoltype(int argc)
   get_coltype(argc, 1);
 }
 
-void
-Y_fitsio_read_tdim(int argc)
+static void
+push_tdim(int naxis, long naxes[])
 {
-  yfits_object* fh;
   long  dims[2];
-  long  naxes[Y_DIMSIZE - 1];
   long* result;
-  int   status, colnum, k, naxis;
+  int   k;
 
-  if (argc != 2) y_error("expecting exactly 2 arguments");
-  fh = yfits_fetch(1, TRUE);
-  colnum = ygets_i(0);
-
-  critical(TRUE);
-  status = 0;
-  if (fits_read_tdim(fh->fptr, colnum,
-                     Y_DIMSIZE - 1, &naxis, naxes, &status) != 0) {
-    yfits_error(status);
+  if (naxis == 1 && naxes[0] == 1) {
+    naxis = 0;
   }
   dims[0] = 1;
   dims[1] = naxis + 1;
@@ -1768,14 +1738,32 @@ Y_fitsio_read_tdim(int argc)
 }
 
 void
+Y_fitsio_read_tdim(int argc)
+{
+  yfits_object* fh;
+  long  naxes[Y_DIMSIZE - 1];
+  int   status, colnum, naxis;
+
+  if (argc != 2) y_error("expecting exactly 2 arguments");
+  fh = yfits_fetch(1, TRUE);
+  colnum = ygets_i(0);
+
+  critical(TRUE);
+  status = 0;
+  if (fits_read_tdim(fh->fptr, colnum,
+                     Y_DIMSIZE - 1, &naxis, naxes, &status) != 0) {
+    yfits_error(status);
+  }
+  push_tdim(naxis, naxes);
+}
+
+void
 Y_fitsio_decode_tdim(int argc)
 {
   yfits_object* fh;
-  long  dims[2];
   long  naxes[Y_DIMSIZE - 1];
-  long* result;
   char* tdimstr;
-  int   status, colnum, k, naxis;
+  int   status, colnum, naxis;
 
   if (argc != 3) y_error("expecting exactly 3 arguments");
   fh = yfits_fetch(2, TRUE);
@@ -1788,13 +1776,7 @@ Y_fitsio_decode_tdim(int argc)
                        Y_DIMSIZE - 1, &naxis, naxes, &status) != 0) {
     yfits_error(status);
   }
-  dims[0] = 1;
-  dims[1] = naxis + 1;
-  result = ypush_l(dims);
-  result[0] = naxis;
-  for (k = 0; k < naxis; ++k) {
-    result[k+1] = naxes[k];
-  }
+  push_tdim(naxis, naxes);
 }
 
 void
@@ -1808,6 +1790,10 @@ Y_fitsio_write_tdim(int argc)
   fh = yfits_fetch(argc - 1, TRUE);
   colnum = ygets_i(argc - 2);
   get_dimlist(argc - 3, 0, dims, Y_DIMSIZE - 1);
+  if (dims[0] == 0) {
+    dims[0] = 1;
+    dims[1] = 1;
+  }
 
   critical(TRUE);
   status = 0;
@@ -1815,6 +1801,427 @@ Y_fitsio_write_tdim(int argc)
     yfits_error(status);
   }
   ypush_nil();
+}
+
+static int
+get_colnum(int iarg, fitsfile *fptr)
+{
+  char* colname;
+  int type, rank, status, ncols, colnum;
+
+  type = yarg_typeid(iarg);
+  rank = yarg_rank(iarg);
+  if (type <= Y_LONG && rank == 0) {
+    status = 0;
+    if (fits_get_num_cols(fptr, &ncols, &status) != 0) {
+      yfits_error(status);
+    }
+    colnum = ygets_i(iarg);
+    if (colnum < 1 || colnum > ncols) {
+      y_error("out of range column number");
+    }
+    return colnum;
+  }
+  if (type == Y_STRING && rank == 0) {
+    colname = ygets_q(iarg);
+    if (colname == NULL || colname[0] == '\0') {
+      status = COL_NOT_FOUND;
+    } else {
+      status = 0;
+      fits_get_colnum(fptr, CASEINSEN, colname, &colnum, &status);
+    }
+    if (status != 0) {
+      if (status == COL_NOT_FOUND) {
+        y_error("column name not found");
+      }
+      if (status != COL_NOT_UNIQUE) {
+        y_error("column name not unique");
+      }
+      yfits_error(status);
+    }
+    return colnum;
+  }
+  y_error("expecting column number or name");
+  return -1;
+}
+
+void
+Y_fitsio_write_column(int argc)
+{
+  yfits_object* fh;
+  long number, firstrow;
+  long dims[Y_DIMSIZE];
+  long naxes[Y_DIMSIZE - 1];
+  void* arr;
+  void* null;
+  int k, type, naxis, status, colnum;
+  int iarg, null_iarg, pos;
+
+  /* Parse arguments. */
+  null_iarg = -1;
+  firstrow = 1;
+  colnum = -1;
+  fh = NULL;
+  arr = NULL;
+  pos = 0;
+  for (iarg = argc - 1; iarg >= 0; --iarg) {
+    long index = yarg_key(iarg);
+    if (index < 0) {
+      /* Positional argument. */
+      ++pos;
+      if (pos == 1) {
+        fh = yfits_fetch(iarg, TRUE);
+        critical(TRUE);
+      } else if (pos == 2) {
+        arr = ygeta_any(iarg, &number, dims, &type);
+      } else if (pos == 3) {
+        colnum = get_colnum(iarg, fh->fptr);
+      } else if (pos == 4) {
+        firstrow = ygets_l(iarg);
+      } else {
+        y_error("too many arguments");
+      }
+    } else {
+      /* Keyword argument. */
+      --iarg;
+      if (index == index_of_null) {
+        null_iarg = iarg;
+      } else {
+        y_error("unsupported keyword");
+      }
+    }
+  }
+  if (pos < 3) {
+    y_error("too few arguments");
+  }
+  if (null_iarg == -1) {
+    null = NULL;
+  } else {
+    int id = yarg_typeid(null_iarg);
+    if (id == Y_VOID) {
+      null = NULL;
+    } else {
+      if (yarg_rank(null_iarg) != 0) {
+        y_error("null value must be a scalar");
+      }
+      if (id != type) {
+        y_error("null value must be of same type as the data");
+      }
+      null = ygeta_any(null_iarg, NULL, NULL, NULL);
+    }
+  }
+
+  /* Convert Yorick type to CFITSIO type. */
+  type = get_data_type(type);
+
+  /* Get column dimensions and check that dimensions (but the last one) are
+     matching. */
+  status = 0;
+  if (fits_read_tdim(fh->fptr, colnum,
+                     Y_DIMSIZE - 1, &naxis, naxes, &status) != 0) {
+    yfits_error(status);
+  }
+  if (naxis == 1 && naxes[0] == 1) {
+    naxis = 0;
+  }
+  if (dims[0] != naxis + 1 && dims[0] != naxis) {
+    y_error("incompatible number of dimensions");
+  }
+  for (k = 0; k < naxis; ++k) {
+    if (dims[k+1] != naxes[k]) {
+      y_error("non matching dimension(s)");
+    }
+  }
+
+  /* Write the values. */
+  if (null == NULL) {
+    fits_write_col(fh->fptr, type, colnum, firstrow, 1,
+                   number, arr, &status);
+  } else {
+    fits_write_colnull(fh->fptr, type, colnum, firstrow, 1,
+                       number, arr, null, &status);
+  }
+  if (status != 0) {
+    yfits_error(status);
+  }
+  ypush_nil();
+}
+
+void
+Y_fitsio_read_column(int argc)
+{
+  scalar_t null;
+  yfits_object* fh;
+  long number, firstrow, lastrow, nrows, null_index, repeat, width;
+  long dims[Y_DIMSIZE];
+  void* arr;
+  int k, type, naxis, status, colnum, anynull;
+  int iarg, pos;
+
+  /* Parse arguments. */
+  null_index = -1;
+  firstrow = -1;
+  lastrow = -1;
+  colnum = -1;
+  fh = NULL;
+  arr = NULL;
+  pos = 0;
+  for (iarg = argc - 1; iarg >= 0; --iarg) {
+    long index = yarg_key(iarg);
+    if (index < 0) {
+      /* Positional argument. */
+      ++pos;
+      if (pos == 1) {
+        fh = yfits_fetch(iarg, TRUE);
+        critical(TRUE);
+      } else if (pos == 2) {
+        colnum = get_colnum(iarg, fh->fptr);
+      } else if (pos == 3) {
+        firstrow = ygets_l(iarg);
+      } else if (pos == 4) {
+        lastrow = ygets_l(iarg);
+      } else {
+        y_error("too many arguments");
+      }
+    } else {
+      /* Keyword argument. */
+      --iarg;
+      if (index == index_of_null) {
+        null_index = yget_ref(iarg);
+      } else {
+        y_error("unsupported keyword");
+      }
+    }
+  }
+  if (pos < 2) {
+    y_error("too few arguments");
+  }
+
+  /* Get FITS column dimensions and type. */
+  status = 0;
+  fits_get_num_rows(fh->fptr, &nrows, &status);
+  fits_get_eqcoltype(fh->fptr, colnum, &type, &repeat, &width, &status);
+  fits_read_tdim(fh->fptr, colnum, Y_DIMSIZE - 1, &naxis, &dims[1], &status);
+  if (status != 0) {
+    yfits_error(status);
+  }
+  if (naxis == 1 && dims[1] == 1) {
+    naxis = 0;
+  }
+  if (pos < 3) {
+    firstrow = 1;
+  }
+  if (pos < 4) {
+    lastrow = nrows;
+  }
+  if (firstrow < 1 || firstrow > lastrow || lastrow > nrows) {
+    y_error("invalid range of rows");
+  }
+  if (firstrow < lastrow) {
+    if (naxis >= Y_DIMSIZE - 1) {
+      y_error("too many dimensions");
+    }
+    dims[0] = ++naxis;
+    dims[naxis] = lastrow - firstrow + 1;
+  } else {
+    dims[0] = naxis; /* to mimic Yorick dimension list */
+  }
+
+  /* Create the destination array. */
+  /* FIXME: assume Yorick char is unsigned? TSTRING, TBIT and TLOGICAL */
+  switch (type) {
+  case TBYTE:
+  case TLOGICAL: /* In tables, LOGICAL corresponds to byte. */
+    type = TBYTE;
+    arr = ypush_c(dims);
+    null.type = Y_CHAR;
+    break;
+
+  case TSBYTE:
+  case TSHORT:
+    type = TSHORT;
+    arr = ypush_s(dims);
+    null.type = Y_SHORT;
+    break;
+
+  case TUSHORT:
+  case TINT:
+    type = TINT;
+    arr = ypush_i(dims);
+    null.type = Y_INT;
+    break;
+
+#if TINT32BIT != TLONG
+  case TINT32BIT:
+    if (sizeof(int) >= 4) {
+      type = TINT;
+      arr = ypush_i(dims);
+      null.type = Y_INT;
+    } else {
+      type = TLONG;
+      arr = ypush_l(dims);
+      null.type = Y_LONG;
+    }
+    break;
+#endif
+
+  case TUINT:
+  case TULONG:
+  case TLONG:
+  case TLONGLONG:
+    type = TLONG;
+    arr = ypush_l(dims);
+    null.type = Y_LONG;
+    break;
+
+  case TFLOAT:
+    type = TFLOAT;
+    arr = ypush_f(dims);
+    null.type = Y_FLOAT;
+    break;
+
+  case TDOUBLE:
+    type = TDOUBLE;
+    arr = ypush_d(dims);
+    null.type = Y_DOUBLE;
+    break;
+
+  case TCOMPLEX:
+  case TDBLCOMPLEX:
+    type = TDBLCOMPLEX;
+    arr = ypush_z(dims);
+    null.type = Y_COMPLEX;
+    break;
+
+  default:
+    arr = NULL;
+    y_error("unsupported array type");
+  }
+  number = 1;
+  for (k = 1; k <= naxis; ++k) {
+    number *= dims[k];
+  }
+
+  /* Read the values. */
+  fits_read_col(fh->fptr, type, colnum, firstrow, 1, number,
+                &null.value, arr, &anynull, &status);
+  if (status != 0) {
+    yfits_error(status);
+  }
+
+  /* Save the 'null' value. */
+  if (null_index != -1) {
+    if (anynull == 0) {
+      ypush_nil();
+    } else {
+      push_scalar(&null);
+    }
+    yput_global(null_index, 0);
+    yarg_drop(1);
+  }
+}
+
+/*---------------------------------------------------------------------------*/
+/* UTILITY ROUTINES */
+
+void
+Y_fitsio_write_chksum(int argc)
+{
+  int status = 0;
+  if (argc != 1) y_error("expecting exactly one argument");
+  critical(TRUE);
+  if (fits_write_chksum(yfits_fetch(0, TRUE)->fptr, &status) != 0) {
+    yfits_error(status);
+  }
+  ypush_nil();
+}
+
+void
+Y_fitsio_update_chksum(int argc)
+{
+  int status = 0;
+  if (argc != 1) y_error("expecting exactly one argument");
+  critical(TRUE);
+  if (fits_update_chksum(yfits_fetch(0, TRUE)->fptr, &status) != 0) {
+    yfits_error(status);
+  }
+  ypush_nil();
+}
+
+void
+Y_fitsio_verify_chksum(int argc)
+{
+  long dims[] = {1, 2};
+  int* result;
+  int status;
+
+  if (argc != 1) y_error("expecting exactly one argument");
+  result = ypush_i(dims);
+  critical(TRUE);
+  status = 0;
+  if (fits_verify_chksum(yfits_fetch(1, TRUE)->fptr,
+                         &result[0], &result[1], &status) != 0) {
+    yfits_error(status);
+  }
+}
+
+void
+Y_fitsio_get_chksum(int argc)
+{
+  long dims[] = {1, 2};
+  unsigned long* result;
+  int status;
+
+  if (argc != 1) y_error("expecting exactly one argument");
+  result = (unsigned long*)ypush_l(dims);
+  critical(TRUE);
+  status = 0;
+  if (fits_get_chksum(yfits_fetch(1, TRUE)->fptr,
+                      &result[0], &result[1], &status) != 0) {
+    yfits_error(status);
+  }
+}
+
+void
+Y_fitsio_encode_chksum(int argc)
+{
+  char ascii[17];
+  unsigned long sum;
+  int compl;
+
+  if (argc == 1) {
+    sum = ygets_l(0);
+    compl = FALSE;
+  } else if (argc == 2) {
+    sum = ygets_l(1);
+    compl = yarg_true(0);
+  } else {
+    y_error("expecting 1 or 2 argument");
+  }
+  fits_encode_chksum(sum, compl, ascii);
+  push_string(ascii);
+}
+
+void
+Y_fitsio_decode_chksum(int argc)
+{
+  char* ascii;
+  unsigned long sum;
+  int compl;
+
+  if (argc == 1) {
+    ascii = ygets_q(0);
+    compl = FALSE;
+  } else if (argc == 2) {
+    ascii = ygets_q(1);
+    compl = yarg_true(0);
+  } else {
+    y_error("expecting 1 or 2 argument");
+  }
+  if (ascii == NULL || strlen(ascii) != 16) {
+    y_error("length of checksum string should be exactly 16 characters");
+  }
+  ypush_long(fits_decode_chksum(ascii, compl, &sum));
 }
 
 /*---------------------------------------------------------------------------*/
@@ -2058,6 +2465,23 @@ get_image_param(yfits_object* fh, int maxdims, int* bitpix_ptr,
     }
   }
   return *status;
+}
+
+static int
+get_data_type(int type)
+{
+  switch (type) {
+  case Y_CHAR:    return TBYTE;
+  case Y_SHORT:   return TSHORT;
+  case Y_INT:     return TINT;
+  case Y_LONG:    return (sizeof(long) == 8 ? TLONGLONG : TLONG);
+  case Y_FLOAT:   return TFLOAT;
+  case Y_DOUBLE:  return TDOUBLE;
+  case Y_COMPLEX: return TDBLCOMPLEX;
+  default:
+    y_error("unsupported array type");
+    return -1;
+  }
 }
 
 /*

@@ -652,16 +652,107 @@ extern fitsio_write_tdim;
          or fitsio_write_tdim, fh, colnum, dims, ...;
 
      The returned dimension list is similar to the value returned by the
-     `dimsof()` function: [NDIMS, DIM1, DIM2, ...].  The `fitsio_write_tdim`
-     accept a dimension list specified with a variable number of arguments as
-     the `array()` function.
+     `dimsof()` function: [NDIMS, DIM1, DIM2, ...].  The function
+     `fitsio_write_tdim` accepts a dimension list specified with a variable
+     number of arguments as the `array()` function.
 
 
    SEE ALSO: dimsof.
  */
 
+extern fitsio_write_column;
+extern fitsio_read_column;
+/* DOCUMENT fitsio_write_column, fh, arr, col;
+         or fitsio_write_column, fh, arr, col, firstrow;
+
+         or arr = fitsio_read_column(fh, col);
+         or arr = fitsio_read_column(fh, col, firstrow);
+         or arr = fitsio_read_column(fh, col, firstrow, lastrow);
+
+      The subroutine `fitsio_write_column` writes the values of array ARR into
+      the column COL  of the ASCII or  binary table of the current  HDU of the
+      FITS  handle FH.   Argument COL  can be  an integer  (the column  number
+      starting at  1) or a  string (the  column name).  If  optional argument,
+      FIRSTROW  is given  it specifies  the first  row to  write (by  default,
+      FIRSTROW is 1).  Data conversion is automatically done (according to the
+      "TFORM"  keyword  of  the  column).   The  dimensions  of  ARR  must  be
+      consistent with those of a cell of the column (given by the value of the
+      "TDIM" keyword of the column): if the cell is a scalar, then ARR must be
+      a scalar  or a vector and  the number of written  rows is numberof(ARR);
+      otherwise, the  leading dimensions of  ARR must be  equal to those  of a
+      cell and ARR may have zero (to write a single roow) or one more trailing
+      dimension whose length is the number of rows to write.
+
+      The function `fitsio_read_column` reads the  values of the column COL of
+      the ASCII  or binary  table of the  current HDU of  the FITS  handle FH.
+      Argument COL can  be an integer (the  column number starting at  1) or a
+      string (the column name).  Optional  arguments FIRSTROW, and LASTROW can
+      be given  to specify  the first  and/or last row  to read.   By default,
+      FIRSTROW is one and LASTROW is the  number of rows thus reading the rows
+      if none of these two arguments is given.
+
+
+   SEE ALSO: fits_create_tbl, fits_open_table.
+ */
+
+
 /*---------------------------------------------------------------------------*/
 /* MISCELLANEOUS */
+
+extern fitsio_write_chksum;
+extern fitsio_update_chksum;
+extern fitsio_verify_chksum;
+extern fitsio_get_chksum;
+extern fitsio_encode_chksum;
+extern fitsio_decode_chksum;
+/* DOCUMENT fitsio_write_chksum, fh;
+         or fitsio_update_chksum, fh;
+         or [dataok, hduok] = fitsio_verify_chksum(fh);
+         or [datasum, hdusum] = fitsio_get_chksum(fh);
+         or ascii = fitsio_encode_chksum(sum);
+         or ascii = fitsio_encode_chksum(sum, compl);
+         or sum = fitsio_decode_chksum(ascii);
+         or sum = fitsio_decode_chksum(ascii, compl);
+
+     These routines either compute or validate  the checksums of a FITS header
+     data unit (HDU).
+
+     The subroutine  `fitsio_write_chksum` computes  and writes  the "DATASUM"
+     and "CHECKSUM" keyword values for the  current HDU of FITS handle FH.  If
+     the  keywords  already  exist,  their  values will  be  updated  only  if
+     necessary (i.e., if the file has been modified since the original keyword
+     values were computed).
+
+     The subroutine `fitsio_update_chksum` update the "CHECKSUM" keyword value
+     in the CHDU,  assuming that the "DATASUM" keyword exists  and already has
+     the  correct value.   This routine  calculates the  new checksum  for the
+     current header unit, adds it to the data unit checksum, encodes the value
+     into an ASCII string, and writes the string to the "CHECKSUM" keyword.
+
+     The function `fitsio_verify_chksum` verifies the current HDU by computing
+     the checksums  and comparing them  with the  keywords.  The data  unit is
+     verified  correctly if  the computed  checksum  equals the  value of  the
+     "DATASUM" keyword.   The checksum  for the entire  HDU (header  plus data
+     unit)  is correct  if it  equals zero.   The output  values `DATAOK`  and
+     `HDUOK` are integers  which will have a value  = 1 if the data  or HDU is
+     verified correctly, a value = 0 if the "DATASUM" or "CHECKSUM" keyword is
+     not present, or value = -1 if the computed checksum is not correct.
+
+     The function `fitsio_get_chksum` computes and returns the checksum values
+     for  the current  HDU without  creating or  modifying the  "CHECKSUM" and
+     "DATASUM" keywords.
+
+     The  function  `fitsio_encode_chksum` encodes  a  checksum  value into  a
+     16-character string.  If optional argument COMPLM is true then the 32-bit
+     sum value will be complemented before encoding.
+
+     The  function  `fitsio_decode_chksum`  decodes  a  16-character  checksum
+     string into a unsigned long value.   If optional argument COMPLM is true,
+     then  the 32-bit  sum  value  will be  complemented  after decoding.
+
+
+   SEE ALSO: fits_create_file.
+ */
 
 extern fitsio_debug;
 /* DOCUMENT oldval = fitsio_debug(newval);
