@@ -25,8 +25,6 @@ OBJS=yfitsio.o
 # change to give the executable a name other than yorick
 PKG_EXENAME=yorick
 
-PREFIX=/usr/local
-
 # PKG_DEPLIBS=-Lsomedir -lsomelib   for dependencies of this package
 PKG_DEPLIBS= -lcfitsio
 # set compiler (or rarely loader) flags specific to this package
@@ -38,15 +36,16 @@ PKG_LDFLAGS=
 EXTRA_PKGS=$(Y_EXE_PKGS)
 
 # list of additional files for clean
-PKG_CLEAN=
+PKG_CLEAN=*.tmp
 
 # autoload file for this package, if any
-PKG_I_START=
+PKG_I_START=${srcdir}/fitsio-start.i
+
 # non-pkg.i include files for this package, if any
 PKG_I_EXTRA=
 
 RELEASE_FILES = AUTHORS LICENSE.md Makefile NEWS README.md TODO \
-	configure fitsio.i yfitsio.c
+	configure fitsio.i fitsio-start.i yfitsio.c
 RELEASE_NAME = $(PKG_NAME)-$(RELEASE_VERSION).tar.bz2
 
 # -------------------------------- standard targets and rules (in Makepkg)
@@ -88,6 +87,19 @@ dummy-default:
 
 %.o: ${srcdir}/%.c
 	$(CC) $(CPPFLAGS) $(CFLAGS) -o $@ -c $<
+
+${srcdir}/fitsio-start.i: ${srcdir}/fitsio.i
+	sed -r '/^ *(extern|func) /!d;s/^ *(extern|func) +([_0-9A-Za-z]+).*/autoload, "fitsio.i", \2;/' < $< | sort > $@
+
+funclist1.tmp: ${srcdir}/fitsio.i
+	sed -r '/^ *extern /!d;s/^ *extern +([_0-9A-Za-z]+).*/\1/' < $< \
+	    | sort > $@
+funclist2.tmp: ${srcdir}/fitsio.i
+	sed -r '/^ *extern /!d;s/^ *extern +([_0-9A-Za-z]+).*/\1/' < $< \
+	    | sort -u > $@
+funclist3.tmp: ${srcdir}/yfitsio.c
+	sed -r '/^ *(extern +(|void +))?Y_fits/!d;s/^[a-z ]*Y_([_0-9A-Za-z]+).*/\1/' < $< \
+	    | sort > $@
 
 # simple example:
 #myfunc.o: myapi.h
