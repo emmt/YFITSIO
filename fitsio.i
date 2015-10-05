@@ -621,11 +621,16 @@ extern fitsio_get_colname;
 
 extern fitsio_get_coltype;
 extern fitsio_get_eqcoltype;
-/* DOCUMENT [type,repeat,width] = fitsio_get_coltype(fh, colnum);
-         or [type,repeat,width] = fitsio_get_eqcoltype(fh, colnum);
+/* DOCUMENT [type,repeat,width] = fitsio_get_coltype(fh, col);
+         or [type,repeat,width] = fitsio_get_eqcoltype(fh, col);
 
      Return the data  type, vector repeat value,  and the width in  bytes of a
-     column in an ASCII or binary table.   Allowed values for the data type in
+     column in an ASCII or binary table.   Argument COL can be an integer (the
+     column number starting at 1) or a string (the column name).
+
+
+   FIXME:
+     Allowed values for the data type in
      ASCII tables  are: TSTRING, TSHORT,  TLONG, TFLOAT, and  TDOUBLE.  Binary
      tables  also support  these types:  TLOGICAL, TBIT,  TBYTE, TCOMPLEX  and
      TDBLCOMPLEX.  The negative of the data  type code value is returned if it
@@ -671,9 +676,9 @@ extern fitsio_get_eqcoltype;
 extern fitsio_read_tdim;
 extern fitsio_decode_tdim;
 extern fitsio_write_tdim;
-/* DOCUMENT dims = fitsio_read_tdim(fh, colnum);
-         or dims = fitsio_decode_tdim(fh, str, colnum);
-         or fitsio_write_tdim, fh, colnum, dims, ...;
+/* DOCUMENT dims = fitsio_read_tdim(fh, col);
+         or dims = fitsio_decode_tdim(fh, str, col);
+         or fitsio_write_tdim, fh, col, dims, ...;
 
      The returned dimension list is similar to the value returned by the
      `dimsof()` function: [NDIMS, DIM1, DIM2, ...].  The function

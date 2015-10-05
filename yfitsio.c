@@ -1675,6 +1675,48 @@ Y_fitsio_get_colname(int argc)
   }
 }
 
+static int
+get_colnum(int iarg, fitsfile *fptr)
+{
+  char* colname;
+  int type, rank, status, ncols, colnum;
+
+  type = yarg_typeid(iarg);
+  rank = yarg_rank(iarg);
+  if (type <= Y_LONG && rank == 0) {
+    status = 0;
+    if (fits_get_num_cols(fptr, &ncols, &status) != 0) {
+      yfits_error(status);
+    }
+    colnum = ygets_i(iarg);
+    if (colnum < 1 || colnum > ncols) {
+      y_error("out of range column number");
+    }
+    return colnum;
+  }
+  if (type == Y_STRING && rank == 0) {
+    colname = ygets_q(iarg);
+    if (colname == NULL || colname[0] == '\0') {
+      status = COL_NOT_FOUND;
+    } else {
+      status = 0;
+      fits_get_colnum(fptr, CASEINSEN, colname, &colnum, &status);
+    }
+    if (status != 0) {
+      if (status == COL_NOT_FOUND) {
+        y_error("column name not found");
+      }
+      if (status != COL_NOT_UNIQUE) {
+        y_error("column name not unique");
+      }
+      yfits_error(status);
+    }
+    return colnum;
+  }
+  y_error("expecting column number or name");
+  return -1;
+}
+
 static void
 get_coltype(int argc, int eqcoltype)
 {
@@ -1682,14 +1724,12 @@ get_coltype(int argc, int eqcoltype)
   long  dims[2];
   long* result;
   long  repeat, width;
-  int   status, type, colnum;
+  int   status = 0, type, colnum;
 
   if (argc != 2) y_error("expecting exactly 2 arguments");
   fh = yfits_fetch(1, TRUE);
-  colnum = ygets_i(0);
-
   critical(TRUE);
-  status = 0;
+  colnum = get_colnum(0, fh->fptr);
   if (eqcoltype) {
     fits_get_eqcoltype(fh->fptr, colnum, &type, &repeat, &width, &status);
   } else {
@@ -1742,14 +1782,12 @@ Y_fitsio_read_tdim(int argc)
 {
   yfits_object* fh;
   long  naxes[Y_DIMSIZE - 1];
-  int   status, colnum, naxis;
+  int   status = 0, colnum, naxis;
 
   if (argc != 2) y_error("expecting exactly 2 arguments");
   fh = yfits_fetch(1, TRUE);
-  colnum = ygets_i(0);
-
   critical(TRUE);
-  status = 0;
+  colnum = get_colnum(0, fh->fptr);
   if (fits_read_tdim(fh->fptr, colnum,
                      Y_DIMSIZE - 1, &naxis, naxes, &status) != 0) {
     yfits_error(status);
@@ -1763,15 +1801,13 @@ Y_fitsio_decode_tdim(int argc)
   yfits_object* fh;
   long  naxes[Y_DIMSIZE - 1];
   char* tdimstr;
-  int   status, colnum, naxis;
+  int   status = 0, colnum, naxis;
 
   if (argc != 3) y_error("expecting exactly 3 arguments");
   fh = yfits_fetch(2, TRUE);
   tdimstr = ygets_q(1);
-  colnum = ygets_i(0);
-
   critical(TRUE);
-  status = 0;
+  colnum = get_colnum(0, fh->fptr);
   if (fits_decode_tdim(fh->fptr, tdimstr, colnum,
                        Y_DIMSIZE - 1, &naxis, naxes, &status) != 0) {
     yfits_error(status);
@@ -1801,48 +1837,6 @@ Y_fitsio_write_tdim(int argc)
     yfits_error(status);
   }
   ypush_nil();
-}
-
-static int
-get_colnum(int iarg, fitsfile *fptr)
-{
-  char* colname;
-  int type, rank, status, ncols, colnum;
-
-  type = yarg_typeid(iarg);
-  rank = yarg_rank(iarg);
-  if (type <= Y_LONG && rank == 0) {
-    status = 0;
-    if (fits_get_num_cols(fptr, &ncols, &status) != 0) {
-      yfits_error(status);
-    }
-    colnum = ygets_i(iarg);
-    if (colnum < 1 || colnum > ncols) {
-      y_error("out of range column number");
-    }
-    return colnum;
-  }
-  if (type == Y_STRING && rank == 0) {
-    colname = ygets_q(iarg);
-    if (colname == NULL || colname[0] == '\0') {
-      status = COL_NOT_FOUND;
-    } else {
-      status = 0;
-      fits_get_colnum(fptr, CASEINSEN, colname, &colnum, &status);
-    }
-    if (status != 0) {
-      if (status == COL_NOT_FOUND) {
-        y_error("column name not found");
-      }
-      if (status != COL_NOT_UNIQUE) {
-        y_error("column name not unique");
-      }
-      yfits_error(status);
-    }
-    return colnum;
-  }
-  y_error("expecting column number or name");
-  return -1;
 }
 
 void
