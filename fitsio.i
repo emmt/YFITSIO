@@ -588,9 +588,33 @@ extern fitsio_get_colname;
 /* DOCUMENT fitsio_get_colnum(fh, template, case=);
          or fitsio_get_colname(fh, template, case=);
 
-     fitsio_get_colname(fh, "*");
+     The  function `fitsio_get_colnum`  returns  the column  number(s) of  the
+     column(s) whose name match the TEMPLATE  string in the current HDU of the
+     FITS handle FH.
 
-     returns all column names (in order).
+     The function  `fitsio_get_colname` returns  the name(s) of  the column(s)
+     whose  name match  the TEMPLATE  string in  the current  HDU of  the FITS
+     handle FH.
+
+     The input column name template may be either the exact name of the column
+     to be searched for, or it may  contain wild card characters (*, ?, or #),
+     or it  may contain  the integer  number of the  desired column  (with the
+     first column  = 1). The '*'  wild card character matches  any sequence of
+     characters (including zero characters) and  the '?' character matches any
+     single character.  The '#' wildcard  will match any consecutive string of
+     decimal digits (0-9).  If more than  one column name in the table matches
+     the  template string,  then a  vector of  values is  returned.  The  FITS
+     Standard  recommends  that  only  letters,  digits,  and  the  underscore
+     character be  used in  column names (with  no embedded  spaces). Trailing
+     blank characters are not significant.
+
+     For instance, to get  all column names (in order):
+
+          fitsio_get_colname(fh, "*");
+
+     If  keyword  CASE is  true,  then  the column  name  match  will be  case
+     sensitive; by default, the case will be ignored.
+
 
    SEE ALSO:
  */
