@@ -13,6 +13,193 @@
 
 if (is_func(plug_in)) plug_in, "yfitsio";
 
+func fitsio_read(path, hdu=, basic=, hastable=, units=, case=)
+/* DOCUMENT fitsio_read(path);
+
+     Read  data stored  in a  FITS file.   The  result may  be an  array or  a
+     structured object depending whether the  data corrresponds to an image or
+     to a  table extension.  By default,  the data from the  first header data
+     unit (HDU) with significat data is read.   The keyword HDU can be used to
+     read a specific HDU, the value this  keyword can be the HDU number or the
+     extension name.
+
+     If the keyword HDU  is set, the keyword BASIC can be set  true to not use
+     the extended file name syntax to interpret PATH.
+
+     Keywords HASTABLE, UNITS, and CASE are passed to fitsio_read_table if
+
+
+   SEE ALSO: fitsio_open_file, fitsio_read_array.
+ */
+{
+  if (is_void(hdu)) {
+    fh = fitsio_open_data(path);
+    hdutype = FITSIO_IMAGE;
+  } else if (is_scalar(hdu) && is_integer(hdu)) {
+    fh = fitsio_open_file(path, basic=basic);
+    hdutype = fitsio_movabs_hdu(hf, hdu);
+  } else if (is_scalar(hdu) && is_string(hdu)) {
+    fh = fitsio_open_file(path, basic=basic);
+    hdutype = fitsio_movnam_hdu(fh, FITSIO_ANY_HDU, extname);
+  } else {
+    error, "invalid HDU keyword";
+  }
+  if (hdutype == FITSIO_IMAGE) {
+    return fitsio_read_array(fh);
+  } else if (hdutype == FITSIO_BINARY_TBL || hdutype == FITSIO_ASCII_TBL) {
+    return fitsio_read_table(fh, hastable=hastable, case=case, units=units);
+  } else {
+    error, "unknown HDU type";
+  }
+}
+
+func fitsio_read_table(fh, hashtable=, case=, units=)
+/* DOCUMENT obj = fitsio_read_table(fh);
+
+     Read table stored in current HDU  of FITS handle FH.  The returned object
+     has members set according to the names and contents of the columns of the
+     table.  For instance:
+
+        obj.colname           - yields the contents of column COLNAME;
+        obj("colname")        - idem but COLNAME can have aritrary characters;
+        obj("colname.units")  - yields corresponding units.
+
+     Keyword UNITS can  be set with a  scalar string to change  the suffix for
+     the column units.   By default, this suffix is ".units".   Note that this
+     sufix is not affected by the CASE keyword.
+
+     Keyword CASE can be used to specify  whether to force the column names to
+     be converted to lower (CASE < 0) or upper (CASE > 0) letters.  By default
+     (or if CASE = 0), the column names  are used as thery appear in the table
+     definition.
+
+     Keyword HASTABLE can be set true to create an hash-table object (requires
+     Yeti extension, see h_new) intead of an OXY object (see save and oxy).
+
+
+   SEE ALSO: fitsio_open_file, fitsio_read_array, fitsio_read_column,
+             save, oxy, h_new.
+ */
+{
+  if (is_void(units)) {
+    units = ".units";
+  } else if (!is_scalar(units) || !is_string(units) || strlen(units) < 1) {
+    error, "keyword UNITS must be void or a scalar non-empty string";
+  }
+  convert = (case ? (case > 0 ? fitsio_toupper : fitsio_tolower) : noop);
+  names = fitsio_get_colname(fh, "*");
+  ncols = numberof(names);
+  if (hashtable) {
+    obj = h_new();
+    add = h_set;
+  } else {
+    obj = save();
+    add = save;
+  }
+  for (col = 1; col <= ncols; ++col) {
+    name = convert(names(col));
+    add, obj, noop(name), fitsio_read_column(fh, col),
+      name + units, fitsio_read_value(fh, swrite(format="TUNIT%d", col), "");
+  }
+  return obj;
+}
+
+func fitsio_toupper(str) { return strcase(1n, str); }
+func fitsio_tolower(str) { return strcase(0n, str); }
+
+func fitsio_has_member(obj, key) { return (is_obj(obj, noop(key), 1n) >= 0n); }
+
+func fitsio_read_header(fh, hashtable=, case=, units=, comment=)
+/* DOCUMENT obj = fitsio_read_header(fh);
+
+     Read the  header of current HDU  of FITS handle FH.   The returned object
+     has members  set according to the  names and contents of  the keywords of
+     the table.  For instance:
+
+        obj.key            - yields the value of keyword KEY;
+        obj("key")         - idem but KEY can have arbitrary characters;
+        obj("key.units")   - yields keyword units;
+        obj("key.comment") - yields keyword comment.
+
+     Note  that   only  the  `obj.key`   syntax  is  supported;   neither  the
+     `obj.key.units` nor the `obj.key.comment` are supported
+
+     Commentary  cards, like  "COMMENT" or  "HISTORY", do  not have  units nor
+     comment parts.  These keywords just have a value which may be a vector of
+     strings.
+
+     Keywords UNITS and COMMENT can be set  with a scalar string to change the
+     suffixes  for the  column units  and comment  respectively.  By  default,
+     these suffixes are ".units" and  ".comment".  Note that these sufixes are
+     not affected by the CASE keyword.
+
+     Keyword CASE can be used to specify  whether to force the column names to
+     be converted to lower (CASE < 0) or upper (CASE > 0) letters.  By default
+     (or if CASE = 0), the column names  are sued as thery appers in the table
+     definition.
+
+     Keyword HASTABLE can be set true to create an hash-table object (requires
+     Yeti extension, see h_new) intead of an OXY object (see save and oxy).
+
+
+   SEE ALSO: fitsio_open_file, fitsio_read_array, fitsio_read_column,
+             save, oxy, h_new.
+ */
+{
+  if (is_void(units)) {
+    units = ".units";
+  } else if (!is_scalar(units) || !is_string(units) || strlen(units) < 1) {
+    error, "keyword UNITS must be void or a scalar non-empty string";
+  }
+  if (is_void(comment)) {
+    comment = ".comment";
+  } else if (!is_scalar(comment) || !is_string(comment) ||
+             strlen(comment) < 1) {
+    error, "keyword COMMENT must be void or a scalar non-empty string";
+  }
+  convert = (case ? (case > 0 ? fitsio_toupper : fitsio_tolower) : noop);
+  if (hashtable) {
+    obj = h_new();
+    add = h_set;
+    exists = h_has;
+  } else {
+    obj = save();
+    add = save;
+    exists = fitsio_has_member;
+  }
+  nkeys = fitsio_get_hdrspace(fh)(1);
+  local key_value, key_comment, key_units;
+  for (k = 1; k <= nkeys; ++k) {
+    key = fitsio_read_keyn(fh, k)(1);
+    name = convert(key);
+    value = fitsio_read_value(fh, key);
+    if (is_void(value)) {
+      /* Assume commentary keyword. */
+      value = fitsio_read_comment(fh, key);
+      if (exists(obj, name)) {
+        value = grow(obj(noop(name)), value);
+      }
+      add, obj, noop(name), value;
+    } else {
+      /* Non-commentary keyword. */
+      comment_name = name + comment;
+      units_name = name + units;
+      comment_value = fitsio_read_comment(fh, key);
+      units_value = fitsio_read_key_unit(fh, key);
+      if (exists(obj, name)) {
+        value = grow(obj(noop(name)), value);
+        comment_value = grow(obj(noop(comment_name)), comment_value);
+        units_value = grow(obj(noop(units_name)), units_value);
+      }
+      add, obj, noop(name), value,
+        noop(comment_name), comment_value,
+        noop(units_name), units_value;
+    }
+  }
+  fitsio_read_record, fh, 0;
+  return obj;
+}
+
 extern fitsio_open_file;
 extern fitsio_open_data;
 extern fitsio_open_table;
@@ -362,55 +549,6 @@ extern fitsio_read_array;
          or fitsio_read_array(fh, first=..., last=..., incr=...);
          or fitsio_read_array(fh, first=..., number=...);
 
-     Read array values  from FITS "IMAGE" extension in the  current HDU of the
-     handle FH.
-
-     The first call returns the complete multi-dimesional array.
-
-     The  second call  returns a  rectangular sub-array  whose first  and last
-     elements  are defined  by  the values  of the  keywords  FIRST and  LAST.
-     Optionally,  an increment  can  be  specified via  the  INCR keyword;  by
-     default the increment  is equal to one for every  dimensions.  The values
-     of  these  keywords  must  be multi-dimensional  "coordinates",  that  is
-     integer vectors  of same length  as the rank of  the array (given  by the
-     value of the  "NAXIS" keyword).  Integer scalars  are however acceptable,
-     if NAXIS is equal to one.  Coordinates start at one.
-
-     The third call returns a flat array of values.  The first element to read
-     and the  number of elements to  read are specified by  the keywords FIRST
-     and NUMBER.
-
-     Keyword NULL can be  used to specify a variable to  store the value taken
-     by undefined elements of the array.   If there are no undefined elements,
-     the variable will be set to [] on return.  Beware that undefined elements
-     may take the special NaN (not a number) value which is difficult to check
-     (a simple comparison is not sufficient  but the ieee_test function can be
-     used).  The example below takes care of that:
-
-       local null;
-       arr = fitsio_read_array(fh, null=null);
-       if (! is_void(null)) {
-          if (null == null) {
-             // undefined values are not marked by NaN's
-	     undefined = (arr == null);
-          } else {
-             // undefined values are marked by NaN's
-	     undefined = (ieee_test(arr) == ieee_test(null));
-          }
-       }
-
-     This  function  implements  most  of  the  capabilities  of  the  CFITSIO
-     functions fits_read_img, fits_read_subset and fits_read_pix.
-
-
-   SEE ALSO: fitsio_open_file, fitsio_write_array, ieee_test.
- */
-
-extern fitsio_read_array;
-/* DOCUMENT fitsio_read_array(fh);
-         or fitsio_read_array(fh, first=..., last=..., incr=...);
-         or fitsio_read_array(fh, first=..., number=...);
-
      Read array values from the current HDU  of handle FH.  The current HDU of
      FH must be a FITS "IMAGE" extension.
 
@@ -454,6 +592,7 @@ extern fitsio_read_array;
 
    SEE ALSO: fitsio_open_file, fitsio_write_array, ieee_test.
  */
+
 extern fitsio_create_img;
 /* DOCUMENT fitsio_create_img, fh, bitpix, dims, ...;
 
@@ -572,7 +711,7 @@ extern fitsio_create_tbl;
      spaces. Trailing blank characters are not significant.
 
 
-     Keyword TUNITS
+     Keyword TUNIT
 
      Keyword EXTNAME
 
