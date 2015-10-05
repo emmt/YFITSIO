@@ -13,7 +13,7 @@
 
 if (is_func(plug_in)) plug_in, "yfitsio";
 
-func fitsio_read(path, hdu=, basic=, hastable=, units=, case=)
+func fitsio_read(path, hdu=, basic=, hashtable=, units=, case=)
 /* DOCUMENT fitsio_read(path);
 
      Read  data stored  in a  FITS file.   The  result may  be an  array or  a
@@ -26,7 +26,7 @@ func fitsio_read(path, hdu=, basic=, hastable=, units=, case=)
      If the keyword HDU  is set, the keyword BASIC can be set  true to not use
      the extended file name syntax to interpret PATH.
 
-     Keywords HASTABLE, UNITS, and CASE are passed to fitsio_read_table if
+     Keywords HASHTABLE, UNITS, and CASE are passed to fitsio_read_table if
 
 
    SEE ALSO: fitsio_open_file, fitsio_read_array.
@@ -47,7 +47,7 @@ func fitsio_read(path, hdu=, basic=, hastable=, units=, case=)
   if (hdutype == FITSIO_IMAGE) {
     return fitsio_read_array(fh);
   } else if (hdutype == FITSIO_BINARY_TBL || hdutype == FITSIO_ASCII_TBL) {
-    return fitsio_read_table(fh, hastable=hastable, case=case, units=units);
+    return fitsio_read_table(fh, hashtable=hashtable, case=case, units=units);
   } else {
     error, "unknown HDU type";
   }
@@ -73,8 +73,9 @@ func fitsio_read_table(fh, hashtable=, case=, units=)
      (or if CASE = 0), the column names  are used as thery appear in the table
      definition.
 
-     Keyword HASTABLE can be set true to create an hash-table object (requires
-     Yeti extension, see h_new) intead of an OXY object (see save and oxy).
+     Keyword  HASHTABLE  can  be  set  true to  create  an  hash-table  object
+     (requires Yeti  extension, see h_new) intead  of an OXY object  (see save
+     and oxy).
 
 
    SEE ALSO: fitsio_open_file, fitsio_read_array, fitsio_read_column,
@@ -138,8 +139,9 @@ func fitsio_read_header(fh, hashtable=, case=, units=, comment=)
      (or if CASE = 0), the column names  are sued as thery appers in the table
      definition.
 
-     Keyword HASTABLE can be set true to create an hash-table object (requires
-     Yeti extension, see h_new) intead of an OXY object (see save and oxy).
+     Keyword  HASHTABLE  can  be  set  true to  create  an  hash-table  object
+     (requires Yeti  extension, see h_new) intead  of an OXY object  (see save
+     and oxy).
 
 
    SEE ALSO: fitsio_open_file, fitsio_read_array, fitsio_read_column,
