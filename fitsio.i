@@ -17,27 +17,31 @@ func fitsio_read(path, hdu=, basic=, hashtable=, units=, case=)
 /* DOCUMENT fitsio_read(path);
 
      Read  data stored  in a  FITS file.   The  result may  be an  array or  a
-     structured object depending whether the  data corrresponds to an image or
+     structured object depending  whether the data corresponds to  an image or
      to a  table extension.  By default,  the data from the  first header data
-     unit (HDU) with significat data is read.   The keyword HDU can be used to
-     read a specific HDU, the value this  keyword can be the HDU number or the
-     extension name.
+     unit  (HDU) with  significant  data  is read.   The  "Extended File  Name
+     Syntax" can  be exploited  to move  to a specific  HDU or  extension (see
+     CFITSIO documentation).
 
-     If the keyword HDU  is set, the keyword BASIC can be set  true to not use
-     the extended file name syntax to interpret PATH.
+     The  keyword HDU  can be  used to  read a  specific HDU,  the value  this
+     keyword can be the HDU number or  the extension name.  If the keyword HDU
+     is set, the  keyword BASIC can be  set true to not use  the extended file
+     name syntax to interpret PATH.
 
-     Keywords HASHTABLE, UNITS, and CASE are passed to fitsio_read_table if
+     Keywords HASHTABLE, UNITS, and CASE  are passed to `fitsio_read_tbl` if
+     the HDU to be read is a FITS table.
 
 
-   SEE ALSO: fitsio_open_file, fitsio_read_array.
+   SEE ALSO: fitsio_open_file, fitsio_read_img, fitsio_read_tbl,
+             fitsio_load.
  */
 {
   if (is_void(hdu)) {
     fh = fitsio_open_data(path);
-    hdutype = FITSIO_IMAGE;
+    hdutype = fitsio_get_hdu_type(fh);
   } else if (is_scalar(hdu) && is_integer(hdu)) {
     fh = fitsio_open_file(path, basic=basic);
-    hdutype = fitsio_movabs_hdu(hf, hdu);
+    hdutype = fitsio_movabs_hdu(fh, hdu);
   } else if (is_scalar(hdu) && is_string(hdu)) {
     fh = fitsio_open_file(path, basic=basic);
     hdutype = fitsio_movnam_hdu(fh, FITSIO_ANY_HDU, extname);
@@ -45,16 +49,53 @@ func fitsio_read(path, hdu=, basic=, hashtable=, units=, case=)
     error, "invalid HDU keyword";
   }
   if (hdutype == FITSIO_IMAGE) {
-    return fitsio_read_array(fh);
+    return fitsio_read_img(fh);
   } else if (hdutype == FITSIO_BINARY_TBL || hdutype == FITSIO_ASCII_TBL) {
-    return fitsio_read_table(fh, hashtable=hashtable, case=case, units=units);
+    return fitsio_read_tbl(fh, hashtable=hashtable, case=case, units=units);
   } else {
     error, "unknown HDU type";
   }
 }
 
-func fitsio_read_table(fh, hashtable=, case=, units=)
-/* DOCUMENT obj = fitsio_read_table(fh);
+func fitsio_load(path, hashtable=, case=, units=, comment=)
+{
+  convert = (case ? (case > 0 ? fitsio_strupper : fitsio_strlower) : noop);
+  child = convert("hdu") + "%d";
+  if (hashtable) {
+    create = h_new;
+    add = h_set;
+  } else {
+    create = save;
+    add = save;
+  }
+  obj = create();
+  if (fitsio_is_handle(path)) {
+    fh = unref(path);
+  } else if (is_string(path) && is_scalar(path)) {
+    fh = fitsio_open_file(path);
+  }
+  nhdus = fitsio_get_num_hdus(fh);
+  for (hdu = 1; hdu <= nhdus; ++hdu) {
+    hdutype = fitsio_movabs_hdu(fh, hdu);
+    if (hdu == 1 || hdutype == FITSIO_IMAGE) {
+      data = fitsio_read_img(fh);
+    } else if (hdutype == FITSIO_BINARY_TBL || hdutype == FITSIO_ASCII_TBL) {
+      data = fitsio_read_tbl(fh, hashtable=hashtable, case=case,
+                               units=units);
+    } else {
+      data = [];
+      write, format="WARNING: unknown HDU type [hdu=%d, type=%d]\n",
+        hdu, hdutype;
+    }
+    header = fitsio_read_header(fh, hashtable=hashtable, case=case, units=units,
+                                comment=comment);
+    add, obj, swrite(format=child, hdu), create(header = header, data = data);
+  }
+  return obj;
+}
+
+func fitsio_read_tbl(fh, hashtable=, case=, units=)
+/* DOCUMENT obj = fitsio_read_tbl(fh);
 
      Read table stored in current HDU  of FITS handle FH.  The returned object
      has members set according to the names and contents of the columns of the
@@ -78,7 +119,7 @@ func fitsio_read_table(fh, hashtable=, case=, units=)
      and oxy).
 
 
-   SEE ALSO: fitsio_open_file, fitsio_read_array, fitsio_read_column,
+   SEE ALSO: fitsio_open_file, fitsio_read_img, fitsio_read_col,
              save, oxy, h_new.
  */
 {
@@ -87,7 +128,7 @@ func fitsio_read_table(fh, hashtable=, case=, units=)
   } else if (!is_scalar(units) || !is_string(units) || strlen(units) < 1) {
     error, "keyword UNITS must be void or a scalar non-empty string";
   }
-  convert = (case ? (case > 0 ? fitsio_toupper : fitsio_tolower) : noop);
+  convert = (case ? (case > 0 ? fitsio_strupper : fitsio_strlower) : noop);
   names = fitsio_get_colname(fh, "*");
   ncols = numberof(names);
   if (hashtable) {
@@ -99,14 +140,14 @@ func fitsio_read_table(fh, hashtable=, case=, units=)
   }
   for (col = 1; col <= ncols; ++col) {
     name = convert(names(col));
-    add, obj, noop(name), fitsio_read_column(fh, col),
+    add, obj, noop(name), fitsio_read_col(fh, col),
       name + units, fitsio_read_value(fh, swrite(format="TUNIT%d", col), "");
   }
   return obj;
 }
 
-func fitsio_toupper(str) { return strcase(1n, str); }
-func fitsio_tolower(str) { return strcase(0n, str); }
+func fitsio_strupper(str) { return strcase(1n, str); }
+func fitsio_strlower(str) { return strcase(0n, str); }
 
 func fitsio_has_member(obj, key) { return (is_obj(obj, noop(key), 1n) >= 0n); }
 
@@ -144,7 +185,7 @@ func fitsio_read_header(fh, hashtable=, case=, units=, comment=)
      and oxy).
 
 
-   SEE ALSO: fitsio_open_file, fitsio_read_array, fitsio_read_column,
+   SEE ALSO: fitsio_open_file, fitsio_read_img, fitsio_read_col,
              save, oxy, h_new.
  */
 {
@@ -159,7 +200,7 @@ func fitsio_read_header(fh, hashtable=, case=, units=, comment=)
              strlen(comment) < 1) {
     error, "keyword COMMENT must be void or a scalar non-empty string";
   }
-  convert = (case ? (case > 0 ? fitsio_toupper : fitsio_tolower) : noop);
+  convert = (case ? (case > 0 ? fitsio_strupper : fitsio_strlower) : noop);
   if (hashtable) {
     obj = h_new();
     add = h_set;
@@ -217,9 +258,9 @@ extern fitsio_open_image;
 
       The first routine opens the file.   The other routines open the file and
       moves to the first HDU containing  significant data, a table or an image
-      (respectively).  The extend file  syntax (see CFITSIO documentation) can
-      be  exploited  to  move  to  a  specific  HDU  or  extension.   For  the
-      fitsio_open_file routine, keyword  BASIC can be set true to  not use the
+      (respectively).  The "Extended File  Syntax" (see CFITSIO documentation)
+      can  be exploited  to move  to  a specific  HDU or  extension.  For  the
+      `fitsio_open_file` routine, keyword BASIC can be set true to not use the
       extended file name syntax to interpret PATH.
 
       The opened file is automatically closed  when FH is no longer referenced
@@ -541,15 +582,16 @@ extern fitsio_get_img_size;
 
      Get the  number of dimensions, and/or  the size of each  dimension in the
      image.  The number  of axes in the  image is given by  the NAXIS keyword,
-     and the size of each dimension is given by the NAXISn keywords.
+     and  the size  of each  dimension is  given by  the NAXISn  keywords.  If
+     NAXIS=0, then `fitsio_get_img_size` returns [] (an empty result).
 
    SEE ALSO: fitsio_open_file, fitsio_get_img_type.
  */
 
-extern fitsio_read_array;
-/* DOCUMENT fitsio_read_array(fh);
-         or fitsio_read_array(fh, first=..., last=..., incr=...);
-         or fitsio_read_array(fh, first=..., number=...);
+extern fitsio_read_img;
+/* DOCUMENT fitsio_read_img(fh);
+         or fitsio_read_img(fh, first=..., last=..., incr=...);
+         or fitsio_read_img(fh, first=..., number=...);
 
      Read array values from the current HDU  of handle FH.  The current HDU of
      FH must be a FITS "IMAGE" extension.
@@ -577,7 +619,7 @@ extern fitsio_read_array;
      used).  The example below takes care of that:
 
        local null;
-       arr = fitsio_read_array(fh, null=null);
+       arr = fitsio_read_img(fh, null=null);
        if (! is_void(null)) {
           if (null == null) {
              // undefined values are not marked by NaN's
@@ -592,7 +634,7 @@ extern fitsio_read_array;
      functions fits_read_img, fits_read_subset and fits_read_pix.
 
 
-   SEE ALSO: fitsio_open_file, fitsio_write_array, ieee_test.
+   SEE ALSO: fitsio_open_file, fitsio_write_img, ieee_test.
  */
 
 extern fitsio_create_img;
@@ -640,8 +682,8 @@ extern fitsio_copy_image2cell;
    SEE ALSO: fitsio_open_file.
  */
 
-extern fitsio_write_array;
-/* DOCUMENT fitsio_write_array, fh, arr, first=..., null=...;
+extern fitsio_write_img;
+/* DOCUMENT fitsio_write_img, fh, arr, first=..., null=...;
 
      Write array  values ARR into the  current HDU of handle  FH.  The current
      HDU of FH must be a FITS "IMAGE" extension.
@@ -673,7 +715,7 @@ extern fitsio_write_array;
      fits_write_subset, fits_write_img and fits_write_imgnull.
 
 
-   SEE ALSO: fitsio_open_file, fitsio_read_array, ieee_test.
+   SEE ALSO: fitsio_open_file, fitsio_read_img, ieee_test.
  */
 
 extern fitsio_copy_image_section;
@@ -830,16 +872,16 @@ extern fitsio_write_tdim;
    SEE ALSO: dimsof.
  */
 
-extern fitsio_write_column;
-extern fitsio_read_column;
-/* DOCUMENT fitsio_write_column, fh, col, arr;
-         or fitsio_write_column, fh, col, arr, firstrow;
+extern fitsio_write_col;
+extern fitsio_read_col;
+/* DOCUMENT fitsio_write_col, fh, col, arr;
+         or fitsio_write_col, fh, col, arr, firstrow;
 
-         or arr = fitsio_read_column(fh, col);
-         or arr = fitsio_read_column(fh, col, firstrow);
-         or arr = fitsio_read_column(fh, col, firstrow, lastrow);
+         or arr = fitsio_read_col(fh, col);
+         or arr = fitsio_read_col(fh, col, firstrow);
+         or arr = fitsio_read_col(fh, col, firstrow, lastrow);
 
-      The subroutine `fitsio_write_column` writes the values of array ARR into
+      The subroutine  `fitsio_write_col` writes the  values of array  ARR into
       the column COL  of the ASCII or  binary table of the current  HDU of the
       FITS  handle FH.   Argument COL  can be  an integer  (the column  number
       starting at  1) or a  string (the  column name).  If  optional argument,
@@ -852,8 +894,8 @@ extern fitsio_read_column;
       (to write a single roow) or  one more trailing dimension whose length is
       the number of rows to write.
 
-      The function `fitsio_read_column` reads the  values of the column COL of
-      the ASCII  or binary  table of the  current HDU of  the FITS  handle FH.
+      The function `fitsio_read_col` reads the values of the column COL of the
+      ASCII  or  binary table  of  the  current HDU  of  the  FITS handle  FH.
       Argument COL can  be an integer (the  column number starting at  1) or a
       string (the column name).  Optional  arguments FIRSTROW, and LASTROW can
       be given  to specify  the first  and/or last row  to read.   By default,
@@ -932,11 +974,20 @@ extern fitsio_decode_chksum;
 
 extern fitsio_debug;
 /* DOCUMENT oldval = fitsio_debug(newval);
+
      Set the verbosity of error messages and return the former setting.
+
    SEE ALSO: error.
  */
-extern fitsio_init;
-fitsio_init;
+
+extern fitsio_setup;
+/* DOCUMENT fitsio_setup;
+
+     Initialize internals of the plug-in.
+
+   SEE ALSO: fitsio_open_file.
+ */
+fitsio_setup;
 
 /*
  * Local Variables:

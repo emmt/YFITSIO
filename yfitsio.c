@@ -953,14 +953,18 @@ Y_fitsio_get_img_size(int argc)
   fptr = fetch_fitsfile(0, NOT_CLOSED|CRITICAL);
   fits_get_img_dim(fptr, &naxis, &status);
   if (status != 0) yfits_error(status);
-  dims[0] = 1;
-  dims[1] = naxis;
-  fits_get_img_size(fptr, naxis, ypush_l(dims), &status);
-  if (status != 0) yfits_error(status);
+  if (naxis <= 0) {
+    ypush_nil();
+  } else {
+    dims[0] = 1;
+    dims[1] = naxis;
+    fits_get_img_size(fptr, naxis, ypush_l(dims), &status);
+    if (status != 0) yfits_error(status);
+  }
 }
 
 void
-Y_fitsio_read_array(int argc)
+Y_fitsio_read_img(int argc)
 {
   scalar_t null;
   fitsfile* fptr;
@@ -1026,7 +1030,10 @@ Y_fitsio_read_array(int argc)
   status = 0;
   get_image_param(fptr, Y_DIMSIZE - 1, NULL, &naxis, &dims[1], &ntot, &status);
   if (status != 0) yfits_error(status);
-  if (naxis < 0) y_error("bad number of dimensions");
+  if (naxis <= 0) {
+    ypush_nil();
+    return;
+  }
   if (fits_get_img_equivtype(fptr, &bitpix, &status)) {
     yfits_error(status);
   }
@@ -1189,7 +1196,7 @@ Y_fitsio_copy_cell2image(int argc)
 }
 
 void
-Y_fitsio_write_array(int argc)
+Y_fitsio_write_img(int argc)
 {
   fitsfile* fptr;
   long src_number, dst_number, first, flen;
@@ -1802,7 +1809,7 @@ Y_fitsio_write_tdim(int argc)
 }
 
 void
-Y_fitsio_write_column(int argc)
+Y_fitsio_write_col(int argc)
 {
   fitsfile* fptr;
   long number, firstrow, repeat, width;
@@ -1949,7 +1956,7 @@ Y_fitsio_write_column(int argc)
 }
 
 void
-Y_fitsio_read_column(int argc)
+Y_fitsio_read_col(int argc)
 {
   scalar_t null;
   fitsfile* fptr;
@@ -2145,38 +2152,6 @@ Y_fitsio_read_column(int argc)
     yfits_error(status);
   }
 
-#if 0
-  /* Convert array of strings. */
-  if (coltype == TSTRING) {
-    char** cpy;
-    char*  tmp;
-    long i, j, k, stride;
-    if (naxis == 0) {
-      stride = 1;
-      cpy = ypush_q(NULL);
-    } else {
-      stride = dims[1];
-      number /= stride;
-      dims[1] = naxis - 1;
-      cpy = ypush_q(&dims[1]);
-    }
-    tmp = ypush_scratch(stride + 1, NULL);
-    for (i = 0; i < number; ++i) {
-      const char* src = ((const char*)arr) + i*stride;;
-
-      for (j = 0, k = -1; j < stride; ++j) {
-        if (src[j] != ' ') {
-          k = j;
-        }
-        tmp[j] = src[j];
-      }
-      tmp[++k] = '\0';
-      cpy[i] = p_memcpy(tmp, k);
-    }
-    yarg_drop(1);
-  }
-#endif
-
   /* Save the 'null' value. */
   if (null_index != -1) {
     if (anynull == 0) {
@@ -2188,6 +2163,16 @@ Y_fitsio_read_column(int argc)
     yarg_drop(1);
   }
 }
+
+#if 0
+void
+Y_fitsio_insert_rows(int argc)
+{
+  fitsfile* fptr;
+  long firstrow, nrows;
+  int status = 0;
+}
+#endif
 
 /*---------------------------------------------------------------------------*/
 /* UTILITY ROUTINES */
@@ -2295,7 +2280,7 @@ Y_fitsio_debug(int argc)
 }
 
 void
-Y_fitsio_init(int argc)
+Y_fitsio_setup(int argc)
 {
   /* Define constants. */
 #define DEFINE_INT_CONST(c)    define_int_const("FITSIO_"#c, c)
