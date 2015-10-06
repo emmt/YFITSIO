@@ -13,10 +13,10 @@
 
 if (is_func(plug_in)) plug_in, "yfitsio";
 
-func fitsio_read(path, hdu=, basic=, hashtable=, units=, case=)
-/* DOCUMENT fitsio_read(path);
+func fitsio_read_file(path, hdu=, basic=, hashtable=, units=, case=)
+/* DOCUMENT fitsio_read_file(path);
 
-     Read  data stored  in a  FITS file.   The  result may  be an  array or  a
+     Read (some) data stored in a FITS file.   The result may be an array or a
      structured object depending  whether the data corresponds to  an image or
      to a  table extension.  By default,  the data from the  first header data
      unit  (HDU) with  significant  data  is read.   The  "Extended File  Name
@@ -31,9 +31,12 @@ func fitsio_read(path, hdu=, basic=, hashtable=, units=, case=)
      Keywords HASHTABLE, UNITS, and CASE  are passed to `fitsio_read_tbl` if
      the HDU to be read is a FITS table.
 
+     The function `fitsio_load_file` can be used to load all the contents of a
+     file.
+
 
    SEE ALSO: fitsio_open_file, fitsio_read_img, fitsio_read_tbl,
-             fitsio_load.
+             fitsio_load_file.
  */
 {
   if (is_void(hdu)) {
@@ -57,7 +60,46 @@ func fitsio_read(path, hdu=, basic=, hashtable=, units=, case=)
   }
 }
 
-func fitsio_load(path, hashtable=, case=, units=, comment=)
+func fitsio_load_file(path, hashtable=, case=, units=, comment=)
+/* DOCUMENT obj = fitsio_load_file(path);
+
+     Load  all the  contents of  a FITS  file into  a structured  object whose
+     members are:
+
+        obj.hduN.header  = header for HDU number N
+        obj.hduN.data    = data for HDU number N
+
+     where hduN can be hdu1, hdu2, etc.  up to the number of header data units
+     (HDU) stored  in the  file.  The  header part is  stored as  a structured
+     object (see `fitsio_read_header`), for instance:
+
+        obj.hdu2.header.BITPIX            = value of BITPIX keyword in 2nd HDU;
+        obj.hdu2.header("BITPIX")         = idem;
+        obj.hdu2.header("BITPIX.comment") = associated comment;
+
+     For image extensions, the data part is  simply an array (or [] if empty).
+     Fot table extensions, the data part  isstored as a structured object (see
+     `fitsio_read_tbl`), for instance:
+
+        obj.hdu2.data.FOO            = value of the "FOO" column;
+        obj.hdu2.data("FOO")         = idem;
+        obj.hdu2.data("FOO.units")   = associated uints;
+
+     Keywords COMMENT and UNITS can be used to specify different suffixes than
+     the defaulr ".comment" and ".units" for the comment and units parts.
+
+     Keywords CASE can be set to a strictly positive (resp. negative) value to
+     convert  FITS keywords  and  column  names to  upper  (resp. lower)  case
+     letters.  This conversion  affects the HDU names but does  not affect the
+     COMMENT and UNITS suffixes.
+
+     Keyword  HASHTABLE can  be  set  true to  use  Yeti  hash-tables for  the
+     structured objects.  By default, a Yorick "group" object is used.
+
+
+   SEE ALSO: fitsio_open_file, fitsio_read_img, fitsio_read_tbl,
+             fitsio_load_file.
+ */
 {
   convert = (case ? (case > 0 ? fitsio_strupper : fitsio_strlower) : noop);
   child = convert("hdu") + "%d";
@@ -163,8 +205,8 @@ func fitsio_read_header(fh, hashtable=, case=, units=, comment=)
         obj("key.units")   - yields keyword units;
         obj("key.comment") - yields keyword comment.
 
-     Note  that   only  the  `obj.key`   syntax  is  supported;   neither  the
-     `obj.key.units` nor the `obj.key.comment` are supported
+     Note that, to retrieve the comment or the units of a keyword, the shorter
+     syntax (`obj.key.comment` or `obj.key.units`) is not supported.
 
      Commentary  cards, like  "COMMENT" or  "HISTORY", do  not have  units nor
      comment parts.  These keywords just have a value which may be a vector of
