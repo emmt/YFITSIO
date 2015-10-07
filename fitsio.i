@@ -183,7 +183,7 @@ func fitsio_read_tbl(fh, hashtable=, case=, units=)
   for (col = 1; col <= ncols; ++col) {
     name = convert(names(col));
     add, obj, noop(name), fitsio_read_col(fh, col),
-      name + units, fitsio_read_value(fh, swrite(format="TUNIT%d", col), "");
+      name + units, fitsio_read_key(fh, swrite(format="TUNIT%d", col), def="");
   }
   return obj;
 }
@@ -252,36 +252,37 @@ func fitsio_read_header(fh, hashtable=, case=, units=, comment=)
     add = save;
     exists = fitsio_has_member;
   }
-  nkeys = fitsio_get_hdrspace(fh)(1);
-  local key_value, key_comment, key_units;
+  nkeys = fitsio_get_num_keys(fh);
+  null = string(0);
   for (k = 1; k <= nkeys; ++k) {
-    key = fitsio_read_keyn(fh, k)(1);
+    card = fitsio_read_card(fh, k); /* FIXME: split card */
+    key = fitsio_get_keyword(card);
     name = convert(key);
-    value = fitsio_read_value(fh, key);
-    if (is_void(value)) {
+    value = fitsio_get_value(card);
+    if (value == null) {
       /* Assume commentary keyword. */
-      value = fitsio_read_comment(fh, key);
+      value = fitsio_get_comment(card);
       if (exists(obj, name)) {
         value = grow(obj(noop(name)), value);
       }
       add, obj, noop(name), value;
     } else {
       /* Non-commentary keyword. */
+      local units;
+      comment = fitsio_get_comment(card, units);
       comment_name = name + comment;
       units_name = name + units;
-      comment_value = fitsio_read_comment(fh, key);
-      units_value = fitsio_read_key_unit(fh, key);
       if (exists(obj, name)) {
         value = grow(obj(noop(name)), value);
-        comment_value = grow(obj(noop(comment_name)), comment_value);
-        units_value = grow(obj(noop(units_name)), units_value);
+        comment_value = grow(obj(noop(comment_name)), comment);
+        units_value = grow(obj(noop(units_name)), units);
       }
       add, obj, noop(name), value,
-        noop(comment_name), comment_value,
-        noop(units_name), units_value;
+        noop(comment_name), comment,
+        noop(units_name), units;
     }
   }
-  fitsio_read_record, fh, 0;
+  fitsio_read_card, fh, 0;
   return obj;
 }
 
@@ -484,38 +485,27 @@ extern fitsio_delete_hdu;
    SEE ALSO: fitsio_open_file.
  */
 
-extern fitsio_get_hdrspace;
-/* DOCUMENT [numkeys, morekeys] = fitsio_get_hdrspace(fh);
+/*---------------------------------------------------------------------------*/
+/* HEADER KEYWORDS */
 
-     Return  the number  NUMKEYS of  existing keywords  (not counting  the END
-     keyword) and  the amount MOREKEYS  of space currently available  for more
-     keywords.   It returns  MOREKEYS =  -1  if the  header has  not yet  been
-     closed.  Note  that CFITSIO will  dynamically add space if  required when
-     writing new keywords to a header so  in practice there is no limit to the
-     number of keywords that can be added to a header.
+extern fitsio_get_num_keys;
+/* DOCUMENT fitsio_get_num_keys(fh);
+
+     Return the number  of existing keywords (not counting  the "END" keyword)
+     in the header of the current HDU of FITS handle FH.
 
    SEE ALSO: fitsio_open_file.
  */
 
-extern fitsio_read_keyword;
-extern fitsio_read_value;
-extern fitsio_read_comment;
 extern fitsio_read_card;
-extern fitsio_read_str;
-extern fitsio_read_record;
-extern fitsio_read_keyn;
-extern fitsio_read_key_unit;
-/* DOCUMENT fitsio_read_keyword(fh, key);
-         or fitsio_read_value(fh, key);
-         or fitsio_read_value(fh, key, def);
-         or fitsio_read_comment(fh, key);
-         or fitsio_read_card(fh, key);
-         or fitsio_read_str(fh, key);
-         or fitsio_read_record(fh, keynum);
-         or fitsio_read_keyn(fh, keynum);
-         or fitsio_read_key_unit(fh, key);
+/* DOCUMENT card = fitsio_read_card(fh, key);
+         or fitsio_read_card, fh, 0;
 
-     These functions read or write keywords  in the Current Header Unit (CHU).
+     The function  `fitsio_read_card` returns a 80-character  FITS header card
+     from the handle FH of nothing if  the key is not found.  Argument KEY can
+     be the FITS keyword name (possibly with  wild cards, see below) or a card
+     number.  Using a card number equals to zero will reset search.
+
      Wild card characters  ('*', '?', or '#') may be  used when specifying the
      name of the keyword to be read:  a '?' will match any single character at
      that  position in  the  keyword name  and  a '*'  will  match any  length
@@ -524,19 +514,39 @@ extern fitsio_read_key_unit;
      routine will only search for a  match from the current header position to
      the end of the header and will not  resume the search from the top of the
      header back to the original header  position as is done when no wildcards
-     are included in the keyword  name.  The `fits_read_record` routine may be
-     used to set the starting position when doing wild card searches.
+     are included in the keyword name.  Calling `fitsio_read_card` with a card
+     number equals to  zero will resume the starting position  when doing wild
+     card searches.
 
-     The function `fitsio_read_keyword` returns the  textual value of the FITS
-     keyword KEY in  current header unit of  FITS handle FH.  If  the value is
-     undefined, a  null string is returned.   If KEY is not  found, nothing is
-     returned.  Leading and trailing spaces are stripped from the result.
+     The  `fitsio_split_card`,  `fitsio_get_keyword`,  `fitsio_get_value`  and
+     `fitsio_get_comment` can  be used to split  or parse the contents  of the
+     card.
 
-     The function  `fitsio_read_value` returns the  value of the  FITS keyword
-     KEY in current header unit of FITS handle FH.  If the value is undefined,
-     nothing  is returned.   If KEY  is not  found, the  default value  DEF is
-     returned if  it is provided; otherwise,  a null string is  returned.  The
-     type of the returned value depends on that of the FITS card:
+
+   SEE ALSO: fitsio_read_key, fitsio_split_card, fitsio_get_keyword.
+*/
+
+extern fitsio_split_card;
+/* DOCUMENT [key,val,com] = fitsio_split_card(card);
+
+     Split a  FITS header card  in 3 parts:  keyword, value and  comment.  The
+     HIERARCH  convention is  applied  to determine  the keyword.   Commentary
+     cards, yields no  value ("") and just have a  comment part (with trailing
+     spaces removed).
+
+   SEE ALSO: fitsio_read_card
+ */
+
+extern fitsio_read_key;
+/* DOCUMENT val = fitsio_read_key(fh, key);
+         or val = fitsio_read_key(fh, key, comm);
+         or val = fitsio_read_key(fh, key, unit, comm);
+
+     The function  `fitsio_read_key` returns the value  of a FITS card  in the
+     current  header of  the  hadle FH.   KEY  can be  the  FITS keyword  name
+     (possibly with wild cards, see `fitsio_read_card`) or a card number.  The
+     type of the returned value depends on  the type of the card as summarized
+     in the table below.
 
         ---------------------------------------------------------
         Result        Type of FITS card
@@ -546,37 +556,110 @@ extern fitsio_read_key_unit;
         double        real value
         complex       complex value
         string        string value -- never string(0)
-        string(0)     undefined value
+        string(0)     undefined value (e.g., commentary card)
         [] (nothing)  keyword not found -- unless DEF is provided
         ---------------------------------------------------------
 
-     Remarks: (i)  String values  are returned  with trailing  spaces stripped
-     (according to  FITS standard they  are unsignificant).  (ii) There  is no
-     distinction between integer and real  complex values (if that matters for
-     you, you  can use  `fitsio_read_keyword` and  parse the  value yourself).
-     (iii) There is  no checking nor conversion done on  the default value DEF
-     if it is provided.
+     Keyword DEF  can be  used to  supply a default  value which  is returned,
+     instead of an empty result, when the FITS keyword is not found.
 
-     The  functions  `fitsio_read_record`  and `fitsio_read_keyn`  return  the
-     KEYNUM-th header record  in the CHU.  The first keyword  in the header is
-     at  KEYNUM =  1; if  KEYNUM =  0, then  these routines  simply reset  the
-     internal  CFITSIO  pointer  to  the  beginning  of  the  header  so  that
-     subsequent keyword operations will start at  the top of the header (e.g.,
-     prior to  searching for keywords using  wild cards in the  keyword name).
-     If KEYNUM  = 0,  then nothing  is returned;  otherwise the  first routine
-     returns  the  entire 80-character  header  record  (with trailing  blanks
-     truncated),  while the  second routine  parses the  record and  returns a
-     vector  of 3  strings: the  keyword, the  value, and  the comment  fields
-     (blank truncated).
+     Optional arguments UNIT and COMM are  variables to store the units or the
+     comment field of the card.  If only  COMM is supplied, the units (if any)
+     will be part of the comment.  If UNIT is supplied, but no units are given
+     in  the comment  part of  the  card, the  UNIT  variable will  be set  to
+     string(0) --- this  is to distinguish with the case  where the units part
+     is given but empty, i.e., the card looks like:
 
-     The  function `fitsio_read_key_unit`  returns the  physical units  string
-     from an existing keyword.  This routine uses a local convention, in which
-     the keyword units are enclosed in square brackets in the beginning of the
-     keyword comment field.  A null string is returned if no units are defined
-     for the keyword.
+        "keyword = value / [] some comment"
 
-   SEE ALSO: fitsio_open_file.
+     Commentary cards  like "COMMENT" or  "HISTORY" have only a  comment part,
+     the returned value will be string(0) and argument UNIT (if supplied) will
+     be set to string(0).
+
+   SEE ALSO: fitsio_read_card.
+*/
+
+extern fitsio_get_keyword;
+extern fitsio_get_value;
+extern fitsio_get_comment;
+/* DOCUMENT fitsio_get_keyword(card);
+         or fitsio_get_value(card);
+         or fitsio_get_comment(card);
+         or fitsio_get_comment(card, unit);
+
+     These functions parse the contents of  a FITS header card.  Argument CARD
+     can  be a  scalar string  or a  split card  [key,val,com] as  returned by
+     `fitsio_split_card`.
+
+     The function `fitsio_get_keyword` returns the FITS keyword name.
+
+     The function  `fitsio_get_value` returns  the value  of the  card.
+
+     The function `fitsio_get_comment`  returns the comment part  of the card.
+     If second optional  argument is provided, the units (if  any) are removed
+     from the comment part and returned in the UNIT variable.
+
+     The  same conventions  as  `fitsio_read_key` are  used  to determine  the
+     result returned by `fitsio_get_value` and by `fitsio_get_comment` and the
+     definition of the UNIT variable if specified.
+
+
+   SEE ALSO: fitsio_read_card, fitsio_split_card, fitsio_read_key.
  */
+
+extern fitsio_write_key;
+extern fitsio_update_key;
+extern fitsio_write_comment;
+extern fitsio_write_history;
+/* DOCUMENT fitsio_write_key, fh, key, val, com;
+         or fitsio_update_key, fh, key, val, com;
+         or fitsio_write_comment, fh, txt;
+         or fitsio_write_history, fh, txt;
+
+     These routines write ot modify FITS keywords in the current header of the
+     handle FH.
+
+     FITS keywords have a name (KEY), an optional value (VAL) and an optional
+     comment (COM).  `fitsio_write_key` appends a new definition while
+     `fitsio_update_key` updates a definition it already exists, otherwise it
+     appends a new one.  It the value VAL is undefined (i.e., []), a
+     commentary keyword is written/updated.  If COMMENT is omitted, the
+     keyword comment field will be unmodified or left blank.
+
+     The  two routines  `fitsio_write_comment` and  `fitsio_write_history` are
+     specialized versions to  write (append) a "COMMENT"  or "HISTORY" keyword
+     to  the current  header.   The  comment or  history  string  TXT will  be
+     continued over multiple keywords if it is longer than 70 characters.
+
+
+   SEE ALSO: fitsio_open_file, fitsio_delete_key, fitsio_rename_key.
+ */
+
+extern fitsio_delete_key;
+/* DOCUMENT fitsio_delete_key, fh, key;
+
+     Delete an existing definition for FITS  keyword KEY in the current header
+     of the handle FH.  KEY can be a keyword name or a card number.
+
+
+   SEE ALSO: fitsio_open_file, fitsio_write_key, fitsio_rename_key.
+ */
+
+//extern fitsio_write_date;
+//extern fitsio_rename_key;
+//extern fitsio_write_key_unit;
+//extern fitsio_modify_comment;
+/* DOCUMENT fitsio_rename_key, fh, oldkey, newkey;
+
+     Rename an existing FITS keyword OLDKEY as NEWKEY in the current header of
+     the handle FH.
+
+
+   SEE ALSO: fitsio_open_file, fitsio_delete_key, fitsio_write_key.
+ */
+
+/*---------------------------------------------------------------------------*/
+/* PRIMARY HDU OR IMAGE EXTENSION */
 
 local FITSIO_BYTE_IMG, FITSIO_SHORT_IMG, FITSIO_LONG_IMG;
 local FITSIO_LONGLONG_IMG, FITSIO_FLOAT_IMG, FITSIO_DOUBLE_IMG;
@@ -636,7 +719,7 @@ extern fitsio_read_img;
          or fitsio_read_img(fh, first=..., number=...);
 
      Read array values from the current HDU  of handle FH.  The current HDU of
-     FH must be a FITS "IMAGE" extension.
+     FH must be the primary HDU or a FITS "IMAGE" extension.
 
      The first call returns the complete multi-dimesional array.
 
@@ -1011,7 +1094,14 @@ extern fitsio_decode_chksum;
      then  the 32-bit  sum  value  will be  complemented  after decoding.
 
 
-   SEE ALSO: fits_create_file.
+   SEE ALSO: fitsio_create_file.
+ */
+
+extern fitsio_get_version;
+/* DOCUMENT fitsio_get_version();
+
+     Return the  revision number of  the CFITSIO  library as a  floating point
+     number.
  */
 
 extern fitsio_debug;

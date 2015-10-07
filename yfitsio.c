@@ -20,7 +20,7 @@
 #include <float.h>
 #include <limits.h>
 
-#include <fitsio.h>
+#include <fitsio2.h>
 
 #include <pstdlib.h>
 #include <play.h>
@@ -51,17 +51,33 @@ typedef struct {
     long l;
     float f;
     double d;
+    char* q;
   } value;
   int type;
 } scalar_t;
 
-static void  push_string(const char* str);
-static void  push_scalar(const scalar_t* s);
+static void push_string(const char* str);
+static void push_complex(double re, double im);
+static void push_scalar(const scalar_t* s);
+
+static void define_string(long index, const char* str);
+
+
 static char* fetch_path(int iarg);
 static int   fetch_int(int iarg);
 #define      fetch_fitsfile(iarg, flags) yfits_fetch((iarg), (flags))->fptr
 
 static void critical(int clear_errmsg);
+
+/* space: ' ' (32)
+   white: '\t' (9), '\n' (10), '\v' (11), '\f' (12), '\r' (13)
+*/
+#define IS_WHITE(c) ('\t' <= (c) && (c) <= '\r')
+#define IS_SPACE(c) ((c) == ' ' || IS_WHITE(c))
+
+/* Trim leading and trailing spaces and return length.   SRC and DST
+   can be the same.   NULL forbidden. */
+static int trim_string(char* dst, const char* src);
 
 /* Retrieve dimension list from arguments of the stack.  IARG_FIRST is the
    first stack element to consider, IARG_LAST is the last one (inclusive and
@@ -109,6 +125,7 @@ static long index_of_last = -1L;
 static long index_of_null = -1L;
 static long index_of_number = -1L;
 static long index_of_tunit = -1L;
+static long index_of_def = -1L;
 
 /* A static buffer for error messages, file names, etc. */
 static char buffer[32*1024];
@@ -602,315 +619,630 @@ Y_fitsio_delete_hdu(int argc)
   ypush_int(type);
 }
 
+/*---------------------------------------------------------------------------*/
+/* HEADER KEYWORDS */
+
 void
-Y_fitsio_get_hdrspace(int argc)
+Y_fitsio_get_num_keys(int argc)
 {
-  long dims[2];
-  long* out;
-  int numkeys, morekeys, status = 0;
+  int numkeys, status = 0;
   if (argc != 1) y_error("expecting exactly one argument");
   fits_get_hdrspace(fetch_fitsfile(0, NOT_CLOSED|CRITICAL),
-                    &numkeys, &morekeys, &status);
+                    &numkeys, NULL, &status);
   if (status != 0) yfits_error(status);
-  dims[0] = 1;
-  dims[1] = 2;
-  out = ypush_l(dims);
-  out[0] = numkeys;
-  out[1] = morekeys;
+  ypush_long(numkeys);
 }
 
-void
-Y_fitsio_read_keyword(int argc)
+static int
+get_key(int iarg, int* keynum, char** keystr)
 {
-  fitsfile* fptr;
-  char* key;
-  char* value;
-  int len, status;
-
-  /* Fetch textual value. */
-  if (argc != 2) y_error("expecting exactly 2 arguments");
-  fptr = fetch_fitsfile(argc - 1, NOT_CLOSED|CRITICAL);
-  key = ygets_q(argc - 2);
-  if (key == NULL || key[0] == '\0') {
-    status = KEY_NO_EXIST;
-  } else {
-    status = 0;
-    fits_read_keyword(fptr, key, buffer, NULL, &status);
-  }
-  if (status == 0) {
-    /* Trim leading and trailing spaces and push it on top of the stack. */
-    value = buffer;
-    while (value[0] == ' ') {
-      ++value;
-    }
-    len = strlen(value);
-    while (len > 1 && value[len-1] == ' ') {
-      --len;
-    }
-    value[len] = '\0';
-    push_string(value);
-  } else if (status == KEY_NO_EXIST) {
-    ypush_nil();
-  } else if (status == VALUE_UNDEFINED) {
-    push_string(NULL);
-  } else {
-    yfits_error(status);
-  }
-}
-
-void
-Y_fitsio_read_value(int argc)
-{
-  fitsfile* fptr;
-  char* key;
-  char* value;
-  char* end;
-  int len, status = 0;
-  double dval;
-  long lval;
-  double* z;
-
-  if (argc < 2 || argc > 3) y_error("expecting 2 or 3 arguments");
-  fptr = fetch_fitsfile(argc - 1, NOT_CLOSED|CRITICAL);
-  key = ygets_q(argc - 2);
-  if (key == NULL || key[0] == '\0') {
-    status = KEY_NO_EXIST;
-  } else {
-    status = 0;
-    fits_read_keyword(fptr, key, buffer, NULL, &status);
-  }
-  if (status != 0) {
-    if (status == KEY_NO_EXIST) {
-      /* Keyword not found, return default value if any. */
-      if (argc < 3) ypush_nil();
-    } else if (status == VALUE_UNDEFINED) {
-      push_string(NULL);
-    } else {
-      yfits_error(status);
-    }
-    return;
-  }
-
-  /* Trim leading and trailing spaces. */
-  value = buffer;
-  while (value[0] == ' ') {
-    ++value;
-  }
-  len = strlen(value);
-  while (len > 1 && value[len-1] == ' ') {
-    --len;
-  }
-  value[len] = '\0';
-
-  /* Guess value type. */
-  switch (value[0]) {
-  case '\0':
-    ypush_nil();
-    return;
-  case 'T':
-  case 't':
-    if (len != 1) break;
-    ypush_int(TRUE);
-    return;
-  case 'F':
-  case 'f':
-    if (len != 1) break;
-    ypush_int(FALSE);
-    return;
-  case '\'':
-    /* String value (trim trailing spaces). */
-    if (len < 2 || value[len-1] != '\'') break;
-    if (fits_read_key(fptr, TSTRING, key, value, NULL, &status) != 0) {
-      yfits_error(status);
-    }
-    len = strlen(value);
-    while (len > 1 && value[len-1] == ' ') {
-      --len;
-    }
-    value[len] = '\0';
-    push_string(value);
-    return;
-  default:
-    /* Try to read a single integer. */
-    lval = strtol(value, &end, 10);
-    if (*end == '\0') {
-      ypush_long(lval);
-      return;
-    }
-    if (end != value) {
-      /* Try to read a single real. */
-      dval = strtod(value, &end);
-      if (*end == '\0') {
-        ypush_double(dval);
-        return;
-      }
-      if (end != value) {
-        /* Must be a complex (or an error). */
-        z = ypush_z(NULL);
-        z[0] = dval;
-        value = end;
-        z[1] = strtod(value, &end);
-        if (*end == '\0') return;
-      }
+  if (yarg_rank(iarg) == 0) {
+    int type = yarg_typeid(iarg);
+    if (type == Y_STRING) {
+      *keynum = 0;
+      *keystr = ygets_q(iarg);
+      return Y_STRING;
+    } else if (type <= Y_LONG) {
+      long lval = ygets_l(iarg);
+      int ival = (int)lval;
+      if (ival < 0 || ival != lval) y_error("invalid keyword number");
+      *keynum = ival;
+      *keystr = NULL;
+      return Y_INT;
     }
   }
-  y_error("invalid keyword value");
-}
-
-void
-Y_fitsio_read_comment(int argc)
-{
-  fitsfile* fptr;
-  char* key;
-  char *comment;
-  char value[81];
-  int len, status;
-
-  if (argc != 2) y_error("expecting exactly 2 arguments");
-  fptr = fetch_fitsfile(argc - 1, NOT_CLOSED|CRITICAL);
-  key = ygets_q(argc - 2);
-  if (key == NULL || key[0] == '\0') {
-    status = KEY_NO_EXIST;
-  } else {
-    status = 0;
-    fits_read_keyword(fptr, key, value, buffer, &status);
-  }
-  if (status != 0) {
-    if (status == KEY_NO_EXIST || status == VALUE_UNDEFINED) {
-      /* Keyword not found or value undefined, return nothing. */
-      ypush_nil();
-      return;
-    }
-    yfits_error(status);
-  }
-  /* Trim leading and trailing spaces. */
-  comment = buffer;
-  while (comment[0] == ' ') {
-    ++comment;
-  }
-  len = strlen(comment);
-  while (len > 1 && comment[len-1] == ' ') {
-    --len;
-  }
-  comment[len] = '\0';
-  push_string(comment);
+  y_error("expecting a card number or a keyword name");
+  return -1;
 }
 
 void
 Y_fitsio_read_card(int argc)
 {
   fitsfile* fptr;
-  char *key;
-  int status = 0;
+  char* keystr;
+  int status = 0, keynum, keytype;
   if (argc != 2) y_error("expecting exactly 2 arguments");
   fptr = fetch_fitsfile(argc - 1, NOT_CLOSED|CRITICAL);
-  key = ygets_q(argc - 2);
-  if (fits_read_card(fptr, key, buffer, &status) != 0) {
-    if (status == KEY_NO_EXIST || status == VALUE_UNDEFINED) {
-      ypush_nil();
-      return;
+  keytype = get_key(argc - 2, &keynum, &keystr);
+  if (keytype == Y_STRING) {
+    if (keystr == NULL || keystr[0] == '\0') {
+      status = KEY_NO_EXIST;
+    } else {
+      fits_read_card(fptr, keystr, buffer, &status);
     }
+  } else {
+    fits_read_record(fptr, keynum, buffer, &status);
+    if (keynum == 0 && status == 0) {
+      status = KEY_NO_EXIST;
+    }
+  }
+  if (status == 0) {
+    push_string(buffer);
+  } else if (status == KEY_NO_EXIST) {
+    ypush_nil();
+  } else {
     yfits_error(status);
   }
-  push_string(buffer);
 }
 
 void
-Y_fitsio_read_str(int argc)
+Y_fitsio_split_card(int argc)
 {
-  fitsfile* fptr;
-  char *str;
-  int status = 0;
-  if (argc != 2) y_error("expecting exactly 2 arguments");
-  fptr = fetch_fitsfile(argc - 1, NOT_CLOSED|CRITICAL);
-  str = ygets_q(argc - 2);
-  if (fits_read_str(fptr, str, buffer, &status) != 0) {
-    if (status == KEY_NO_EXIST || status == VALUE_UNDEFINED) {
-      ypush_nil();
-      return;
-    }
-    yfits_error(status);
+  long dims[] = {1, 3};
+  char** out;
+  char* card;
+  char keyword[FLEN_KEYWORD];
+  char value[FLEN_VALUE];
+  char comment[FLEN_COMMENT];
+  int len, status = 0;
+  if (argc != 1) y_error("expecting exactly 1 argument");
+  card = ygets_q(0);
+  if (card == NULL || card[0] == '\0') {
+    out = ypush_q(dims);
+  } else {
+    status = 0;
+    /* FIXME: fits_test_record(card, &status); */
+    fits_get_keyname(card, keyword, &len, &status);
+    /* FIXME: fits_test_keyword(keyword, &status); */
+    fits_parse_value(card, value, comment, &status);
+    if (status != 0) yfits_error(status);
+    out = ypush_q(dims);
+    out[0] = p_strcpy(keyword);
+    out[1] = (value[0] == '\0' ? NULL : p_strcpy(value));
+    out[2] = p_strcpy(comment);
   }
-  push_string(buffer);
 }
 
 static void
-read_record(int argc, int split)
+push_key_value(const char* value, char* buffer)
+{
+  double re, im, dval;
+  long lval;
+  char* end;
+  char dummy;
+  int i, c, len, real, status;
+
+  if (value == NULL) {
+    push_string(NULL);
+    return;
+  }
+
+  /* Trim leading and trailing spaces. */
+  len = trim_string(buffer, value);
+
+  /* Guess value type (see fits_get_keytype/ffdtyp in fitscore.c). */
+  switch (buffer[0]) {
+  case '\0':
+    push_string(NULL);
+    return;
+
+  case 'T':
+  case 't':
+    if (len != 1) break;
+    ypush_int(TRUE);
+    return;
+
+  case 'F':
+  case 'f':
+    if (len != 1) break;
+    ypush_int(FALSE);
+    return;
+
+  case '\'':
+    /* String value. */
+    if (len < 2 || buffer[len-1] != '\'') break;
+    status = 0;
+    ffc2s(buffer, buffer, &status);
+    if (status != 0) yfits_error(status);
+    /* FIXME: do we need to trim trailing spaces? */
+    push_string(buffer);
+    return;
+
+  case '(':
+    /* Complex value. */
+    if (sscanf(buffer + 1, "%lf ,%lf )%1c", &re, &im, &dummy) == 2) {
+      push_complex(re, im);
+      return;
+    }
+    break;
+
+  default:
+    real = FALSE;
+    for (i = 0; i < len; ++i) {
+      c = buffer[i];
+      if (c == '.' || c == 'E' || c == 'e') {
+        real = TRUE;
+      } else if (c == 'D' || c == 'd') {
+        buffer[i] = 'E';
+        real = TRUE;
+      }
+    }
+    if (real) {
+      /* Try to read a single real. */
+      dval = strtod(buffer, &end);
+      if (*end == '\0') {
+        ypush_double(dval);
+        return;
+      }
+    } else {
+      /* Try to read a single integer. */
+      lval = strtol(buffer, &end, 10);
+      if (*end == '\0') {
+        ypush_long(lval);
+        return;
+      }
+    }
+  }
+  y_error("invalid keyword value");
+}
+
+/* Extract the units from the comment.
+   The units part is comment[i:j] (if 1 <= i <= j);
+   in any case, the comment part is comment[k:].
+ */
+static void
+parse_unit(const char* comment, int* iptr, int* jptr, int* kptr)
+{
+  int c, i = -1, j = -2, k = 0;
+  do { c = comment[++i]; } while (IS_SPACE(c));
+  if (c == '[') {
+    do { c = comment[++i]; } while (IS_SPACE(c));
+    j = i;
+    for (;;) {
+      if (c == '\0') {
+        j = -2;
+        break;
+      }
+      if (c == ']') {
+        k = j;
+        do { c = comment[--j]; } while (IS_SPACE(c));
+        do { c = comment[++k]; } while (IS_SPACE(c));
+        break;
+      }
+      c = comment[++j];
+    }
+  }
+  *iptr = i;
+  *jptr = j;
+  *kptr = k;
+}
+
+void
+Y_fitsio_read_key(int argc)
 {
   fitsfile* fptr;
-  int keynum, status = 0;
+  char* keystr;
+  char card[FLEN_CARD];
+  char keyword[FLEN_KEYWORD];
+  char value[FLEN_VALUE];
+  char comment[FLEN_COMMENT];
+  long comm_index, unit_index;
+  int iarg, def_iarg, pos;
+  int len, status = 0, keynum, keytype;
 
-  if (argc != 2) y_error("expecting exactly 2 arguments");
-  fptr = fetch_fitsfile(argc - 1, NOT_CLOSED|CRITICAL);
-  keynum = fetch_int(argc - 2);
-  if (keynum < 0) y_error("invalid keyword number");
-  if (split) {
-    char** out;
-    char keyword[FLEN_KEYWORD+1];
-    char value[FLEN_VALUE+1];
-    char comment[FLEN_COMMENT+1];
-    long dims[2];
-    if (fits_read_keyn(fptr, keynum, keyword, value, comment,
-                     &status) == 0) {
-      if (keynum == 0) {
-        ypush_nil();
+  /* Parse arguments. */
+  comm_index = -1;
+  unit_index = -1;
+  def_iarg = -1;
+  fptr = NULL;
+  pos = 0;
+  keytype = -1;
+  keystr = NULL;
+  keynum = -1;
+  for (iarg = argc - 1; iarg >= 0; --iarg) {
+    long index = yarg_key(iarg);
+    if (index < 0) {
+      /* Positional argument. */
+      ++pos;
+      if (pos == 1) {
+        fptr = fetch_fitsfile(iarg, NOT_CLOSED|CRITICAL);
+      } else if (pos == 2) {
+        keytype = get_key(iarg, &keynum, &keystr);
+      } else if (pos == 3) {
+        comm_index = yget_ref(iarg);
+        if (comm_index < 0 && ! yarg_nil(iarg)) {
+          y_error("3rd argument must be a simple variable");
+        }
+      } else if (pos == 4) {
+        unit_index = comm_index;
+        comm_index = yget_ref(iarg);
+        if (unit_index < 0 && ! yarg_nil(iarg)) {
+          y_error("4th argument must be a simple variable");
+        }
       } else {
-        dims[0] = 1;
-        dims[1] = 3;
-        out = ypush_q(dims);
-        out[0] = p_strcpy(keyword);
-        out[1] = p_strcpy(value);
-        out[2] = p_strcpy(comment);
+        y_error("too many arguments");
       }
+    } else {
+      /* Keyword argument. */
+      --iarg;
+      if (index == index_of_def) {
+        def_iarg = iarg;
+      } else {
+        y_error("unsupported keyword");
+      }
+    }
+  }
+  if (pos < 2) {
+    y_error("too few arguments");
+  }
+
+  if (keytype == Y_STRING) {
+    if (keystr == NULL || keystr[0] == '\0' /* FIXME: empty key possible? */) {
+      status = KEY_NO_EXIST;
+    } else {
+      fits_read_card(fptr, keystr, card, &status);
+      fits_get_keyname(card, keyword, &len, &status);
+      fits_parse_value(card, value, comment, &status);
     }
   } else {
-    if (fits_read_record(fptr, keynum, buffer, &status) == 0) {
-      if (keynum == 0) {
-        ypush_nil();
+    if (keynum < 1) y_error("invalid card number");
+    fits_read_keyn(fptr, keynum, keyword, value, comment, &status);
+  }
+  if (value[0] == '\0' && status == 0) {
+    status = VALUE_UNDEFINED;
+  }
+  if (status == 0) {
+    int i, j, k = 0;
+    if (unit_index != -1) {
+      parse_unit(comment, &i, &j, &k);
+      if (i >= 1 && j >= i) {
+        comment[j+1] = '\0';
+        define_string(unit_index, &comment[i]);
       } else {
-        push_string(buffer);
+        define_string(unit_index, NULL);
       }
     }
-  }
-  if (status != 0) {
-    if (status != KEY_NO_EXIST && status != VALUE_UNDEFINED) {
-      yfits_error(status);
+    if (comm_index != -1) {
+      define_string(comm_index, &comment[k]);
     }
-    ypush_nil();
-  }
-}
-
-void
-Y_fitsio_read_record(int argc)
-{
-  read_record(argc, 0);
-}
-
-void
-Y_fitsio_read_keyn(int argc)
-{
-  read_record(argc, 1);
-}
-
-void
-Y_fitsio_read_key_unit(int argc)
-{
-  fitsfile* fptr;
-  char *key;
-  int status = 0;
-  if (argc != 2) y_error("expecting exactly 2 arguments");
-  fptr = fetch_fitsfile(argc - 1, NOT_CLOSED|CRITICAL);
-  key = ygets_q(argc - 2);
-  if (fits_read_key_unit(fptr, key, buffer, &status) == 0) {
-    push_string(buffer[0] == '\0' ? NULL : buffer);
-  } else if (status == KEY_NO_EXIST) {
-    ypush_nil();
+    push_key_value(value, value);
   } else if (status == VALUE_UNDEFINED) {
+    if (unit_index != -1) {
+      define_string(unit_index, NULL);
+    }
+    if (comm_index != -1) {
+      define_string(comm_index, comment);
+    }
     push_string(NULL);
+  } else if (status == KEY_NO_EXIST) {
+    if (unit_index != -1) {
+      define_string(unit_index, NULL);
+    }
+    if (comm_index != -1) {
+      define_string(comm_index, NULL);
+    }
+    if (def_iarg > 0) {
+      yarg_drop(def_iarg);
+    } else if (def_iarg < 0) {
+      ypush_nil();
+    }
   } else {
     yfits_error(status);
   }
 }
+
+static char**
+fetch_card(int iarg, int* n)
+{
+  if (yarg_typeid(iarg) == Y_STRING) {
+    long dims[Y_DIMSIZE], ntot;
+    char** card = ygeta_q(iarg, &ntot, dims);
+    int rank = dims[0];
+    if (rank == 0) {
+      if (card[0] != NULL && strlen(card[0]) > 80) {
+        y_error("FITS cards have at most 80 characters");
+      }
+      *n = 1;
+      return card;
+    }
+    if (rank == 1 && ntot == 3) {
+      if (card[0] != NULL && strlen(card[0]) > 71) {
+        y_error("FITS keywords have at most 71 characters");
+      }
+      if (card[1] != NULL && strlen(card[1]) > 70) {
+        y_error("FITS card values have at most 70 characters");
+      }
+      if (card[2] != NULL && strlen(card[2]) > 72) {
+        y_error("FITS card comments have at most 72 characters");
+      }
+      *n = 3;
+      return card;
+    }
+  }
+  y_error("expecting a FITS card argument");
+  return NULL;
+}
+
+void
+Y_fitsio_get_keyword(int argc)
+{
+  char keyword[FLEN_KEYWORD];
+  char** card;
+  int status, n, len;
+
+  if (argc != 1) y_error("expecting exactly 1 argument");
+  card = fetch_card(0, &n);
+  if (n == 1) {
+    if (card[0] == NULL) {
+      push_string(NULL);
+    } else {
+      status = 0;
+      fits_get_keyname(card[0], keyword, &len, &status);
+      if (status != 0) yfits_error(status);
+      push_string(keyword);
+    }
+  } else {
+    push_string(card[0]);
+  }
+}
+
+void
+Y_fitsio_get_value(int argc)
+{
+  char value[FLEN_VALUE];
+  char comment[FLEN_COMMENT];
+  char** card;
+  int status, n;
+
+  if (argc != 1) y_error("expecting exactly 1 argument");
+  card = fetch_card(0, &n);
+  if (n == 1) {
+    if (card[0] == NULL) {
+      push_string(NULL);
+    } else {
+      status = 0;
+      fits_parse_value(card[0], value, comment, &status);
+      if (status != 0) yfits_error(status);
+      push_key_value(value, value);
+    }
+  } else {
+    push_key_value(card[1], value);
+  }
+}
+
+void
+Y_fitsio_get_comment(int argc)
+{
+  char comment[FLEN_COMMENT];
+  char value[FLEN_VALUE];
+  char** card;
+  long unit_index = -1;
+  int status, n, i, j, k, iarg;
+
+  if (argc != 1 && argc != 2) y_error("expecting 1 or 2 arguments");
+  card = fetch_card(argc - 1, &n);
+  if (argc < 2) {
+    unit_index = -1;
+  } else {
+    iarg = argc - 2;
+    unit_index = yget_ref(iarg);
+    if (unit_index < 0 && ! yarg_nil(iarg)) {
+      y_error("optional argument must be a simple variable");
+    }
+  }
+
+  if (n == 1) {
+    if (card[0] == NULL) goto undefined;
+    status = 0;
+    fits_parse_value(card[0], value, comment, &status);
+    if (status != 0) yfits_error(status);
+  } else {
+    if (card[2] == NULL)  goto undefined;
+    strncpy(comment, card[2], FLEN_COMMENT);
+    comment[FLEN_COMMENT-1] = '\0';
+  }
+
+  if (unit_index < 0) {
+    k = 0;
+  } else {
+    parse_unit(comment, &i, &j, &k);
+    if (i >= 1 && j >= i) {
+      comment[j+1] = '\0';
+      define_string(unit_index, &comment[i]);
+    } else {
+      define_string(unit_index, NULL);
+    }
+  }
+  push_string(&comment[k]);
+  return;
+
+ undefined:
+  if (unit_index >= 0) {
+    define_string(unit_index, NULL);
+  }
+  push_string(NULL);
+}
+
+static void
+write_key(int argc, int update)
+{
+  fitsfile* fptr;
+  long lval; /* integer */
+  int ival; /* logical */
+  double dval; /* real */
+  void* valptr;
+  char *key;
+  char *comment;
+  int iarg, status, valtype, type, valok;
+
+  if (argc != 3 && argc != 4) y_error("expecting 3 or 4 arguments");
+  fptr = fetch_fitsfile(argc - 1, NOT_CLOSED|CRITICAL);
+
+  /* Get the key name. */
+  iarg = argc - 2;
+  if (yarg_typeid(iarg) != Y_STRING || yarg_rank(iarg) != 0) {
+    y_error("illegal keyword name");
+  }
+  key = ygets_q(iarg);
+  if (key == NULL) key = "";
+
+  /* Get the value. */
+  iarg = argc - 3;
+  valtype = 0;
+  valptr = NULL;
+  valok = TRUE;
+  type = yarg_typeid(iarg);
+  if (type != Y_VOID) {
+    if (yarg_rank(iarg) != 0) {
+      valok = FALSE;
+    } else if (type <= Y_LONG) {
+      lval = ygets_l(iarg);
+      if (type == Y_CHAR) {
+        if (lval == 'T' || lval == 't') {
+          ival = 'T';
+        } else if (lval == 'F' || lval == 'f') {
+          ival = 'F';
+        } else {
+          y_error("logical value must be 'T' or 'F'");
+        }
+        valtype = TLOGICAL;
+        valptr = &ival;
+      } else {
+        valtype = TLONG;
+        valptr = &lval;
+      }
+    } else if (type == Y_FLOAT || type == Y_DOUBLE) {
+      dval = ygets_d(iarg);
+      valtype = TDOUBLE;
+      valptr = &dval;
+    } else if (type == Y_COMPLEX) {
+      valtype = TDBLCOMPLEX;
+      valptr = ygeta_z(iarg, NULL, NULL);
+    } else if (type == Y_STRING) {
+      valtype = TSTRING;
+      valptr = ygets_q(iarg);
+      if (valptr == NULL) valptr = "";
+
+    } else {
+      valok = FALSE;
+    }
+  }
+  if (! valok) {
+    y_error("illegal keyword value");
+  }
+
+  /* Get the comment argument. */
+  comment = NULL;
+  if (argc > 4) {
+    iarg = argc - 4;
+    type = yarg_typeid(iarg);
+    if (type == Y_STRING && yarg_rank(iarg) == 0) {
+      comment = ygets_q(iarg);
+      if (comment == NULL) comment = "";
+    } else if (type != Y_VOID) {
+      y_error("illegal comment");
+    }
+  }
+
+  /* Write/update the card. */
+  status = 0;
+  if (update) {
+    if (valptr != NULL) {
+      fits_update_key(fptr, valtype, key, valptr, comment, &status);
+    } else {
+      fits_update_key_null(fptr, key, comment, &status);
+    }
+  } else {
+    if (valptr != NULL) {
+      fits_write_key(fptr, valtype, key, valptr, comment, &status);
+    } else {
+      fits_write_key_null(fptr, key, comment, &status);
+    }
+  }
+  if (status != 0) {
+    yfits_error(status);
+  }
+  ypush_nil();
+}
+
+void
+Y_fitsio_write_key(int argc)
+{
+  write_key(argc, 0);
+}
+
+void
+Y_fitsio_update_key(int argc)
+{
+  write_key(argc, 1);
+}
+
+void
+Y_fitsio_write_comment(int argc)
+{
+  fitsfile* fptr;
+  char *comment;
+  int status = 0;
+  if (argc != 1 && argc != 2) y_error("expecting 1 or 2 arguments");
+  fptr = fetch_fitsfile(argc - 1, NOT_CLOSED|CRITICAL);
+  comment = (argc >= 2 ? ygets_q(argc - 2) : NULL);
+  if (comment == NULL) comment = "";
+  fits_write_comment(fptr, comment, &status);
+  if (status != 0) yfits_error(status);
+  ypush_nil();
+}
+
+void
+Y_fitsio_write_history(int argc)
+{
+  fitsfile* fptr;
+  char *history;
+  int status = 0;
+  if (argc != 1 && argc != 2) y_error("expecting 1 or 2 arguments");
+  fptr = fetch_fitsfile(argc - 1, NOT_CLOSED|CRITICAL);
+  history = (argc >= 2 ? ygets_q(argc - 2) : NULL);
+  if (history == NULL) history = "";
+  fits_write_history(fptr, history, &status);
+  if (status != 0) yfits_error(status);
+  ypush_nil();
+}
+
+void
+Y_fitsio_delete_key(int argc)
+{
+  fitsfile* fptr;
+  char* keystr;
+  int status = 0, keynum, keytype;
+  if (argc != 2) y_error("expecting exactly 2 arguments");
+  fptr = fetch_fitsfile(argc - 1, NOT_CLOSED|CRITICAL);
+  keytype = get_key(argc - 2, &keynum, &keystr);
+  if (keytype == Y_STRING) {
+    if ( /* FIXME: */ keystr == NULL || keystr[0] == '\0') {
+      status = KEY_NO_EXIST;
+    } else {
+      fits_delete_key(fptr, keystr, &status);
+    }
+  } else {
+    fits_delete_record(fptr, keynum, &status);
+  }
+  if (status != 0) {
+    yfits_error(status);
+  }
+  ypush_nil();
+}
+
+/*---------------------------------------------------------------------------*/
+/* PRIMARY HDU OR IMAGE EXTENSION */
 
 void
 Y_fitsio_get_img_type(int argc)
@@ -2269,6 +2601,14 @@ Y_fitsio_decode_chksum(int argc)
 /* MISCELLANEOUS */
 
 void
+Y_fitsio_get_version(int argc)
+{
+  float version;
+  fits_get_version(&version);
+  ypush_double((double)version);
+}
+
+void
 Y_fitsio_debug(int argc)
 {
   int new_value, old_value;
@@ -2312,6 +2652,7 @@ Y_fitsio_setup(int argc)
   INIT(null);
   INIT(number);
   INIT(tunit);
+  INIT(def);
 #undef INIT
 }
 
@@ -2353,6 +2694,28 @@ hdu_type_name(int type)
 /*---------------------------------------------------------------------------*/
 /* UTILITIES */
 
+static int
+trim_string(char* dst, const char* src)
+{
+  int c, i, copy = FALSE;
+  int j = 0; /* index to write in dst */
+  int k = 0; /* length, last non space in dst + 1 */
+
+  for (i = 0; (c = src[i]) != '\0'; ++i) {
+    if (c == ' ' || IS_WHITE(c)) {
+      if (copy) {
+        dst[j++] = c;
+      }
+    } else {
+      copy = TRUE;
+      dst[j++] = c;
+      k = j;
+    }
+  }
+  dst[k] = '\0';
+  return k;
+}
+
 static void
 critical(int clear_errmsg)
 {
@@ -2385,6 +2748,22 @@ static void
 push_string(const char* str)
 {
   ypush_q(NULL)[0] = p_strcpy(str);
+}
+
+static void
+define_string(long index, const char* str)
+{
+  push_string(str);
+  yput_global(index, 0);
+  yarg_drop(1);
+}
+
+static void
+push_complex(double re, double im)
+{
+  double* z = ypush_z(NULL);
+  z[0] = re;
+  z[1] = im;
 }
 
 static void
