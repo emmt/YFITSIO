@@ -746,15 +746,16 @@ extern fitsio_read_img;
      and the  number of elements to  read are specified by  the keywords FIRST
      and NUMBER.
 
-     Keyword NULL can be  used to specify a variable to  store the value taken
-     by undefined elements of the array.   If there are no undefined elements,
-     the variable will be set to [] on return.  Beware that undefined elements
-     may take the special NaN (not a number) value which is difficult to check
-     (a simple comparison is not sufficient  but the ieee_test function can be
-     used).  The example below takes care of that:
+     An optional  second argument NULL  can be used  to specify a  variable to
+     store the value  taken by undefined elements of the  array.  If there are
+     no undefined elements, the variable will  be set to [] on return.  Beware
+     that undefined  elements may take  the special  NaN (not a  number) value
+     which is  difficult to check (a  simple comparison is not  sufficient but
+     the ieee_test  function can be  used).  The  example below takes  care of
+     that:
 
        local null;
-       arr = fitsio_read_img(fh, null=null);
+       arr = fitsio_read_img(fh, null);
        if (! is_void(null)) {
           if (null == null) {
              // undefined values are not marked by NaN's
