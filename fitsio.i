@@ -23,45 +23,65 @@
 
 if (is_func(plug_in)) plug_in, "yfitsio";
 
-func fitsio_read_file(path, hdu=, basic=, hashtable=, units=, case=)
-/* DOCUMENT fitsio_read_file(path);
+func fitsio_read_data(src, hdu=, hashtable=, units=, case=)
+/* DOCUMENT fitsio_read_data(src);
 
-     Read (some) data stored in a FITS file.   The result may be an array or a
-     structured object depending  whether the data corresponds to  an image or
-     to a  table extension.  By default,  the data from the  first header data
-     unit  (HDU) with  significant  data  is read.   The  "Extended File  Name
+     Read (some) data stored in a FITS  file.  Argument SRC can be a file name
+     or a  FITS handle.   The result may  be an array  or a  structured object
+     depending  whether  the data  corresponds  to  an  image  or to  a  table
+     extension.
+
+     If SRC  is a file name,  the data from  the first header data  unit (HDU)
+     with  significant data  is  read  by default.   The  "Extended File  Name
      Syntax" can  be exploited  to move  to a specific  HDU or  extension (see
      CFITSIO documentation).
 
-     The  keyword HDU  can be  used to  read a  specific HDU,  the value  this
+     If SRC is a FITS handle, the data from the current HDU is read.
+
+     The keyword  HDU can be used  to read a  specific HDU, the value  of this
      keyword can be the HDU number or  the extension name.  If the keyword HDU
-     is set, the  keyword BASIC can be  set true to not use  the extended file
-     name syntax to interpret PATH.
+     is set, the extended  file name syntax is not used  to interpret SRC when
+     it is a file name.
 
      Keywords HASHTABLE, UNITS, and CASE  are passed to `fitsio_read_tbl` if
      the HDU to be read is a FITS table.
 
-     The function `fitsio_load_file` can be used to load all the contents of a
+     The function `fitsio_read_all` can be used  to load all the contents of a
      file.
 
 
-   SEE ALSO: fitsio_open_file, fitsio_read_img, fitsio_read_tbl,
-             fitsio_load_file.
+   SEE ALSO: fitsio_open_file, fitsio_read_header, fitsio_read_img,
+             fitsio_read_tbl, fitsio_read_all.
  */
 {
-  if (is_void(hdu)) {
-    fh = fitsio_open_data(path);
-    hdutype = fitsio_get_hdu_type(fh);
-  } else if (is_scalar(hdu) && is_integer(hdu)) {
-    fh = fitsio_open_file(path, basic=basic);
-    hdutype = fitsio_movabs_hdu(fh, hdu);
-  } else if (is_scalar(hdu) && is_string(hdu)) {
-    fh = fitsio_open_file(path, basic=basic);
-    hdutype = fitsio_movnam_hdu(fh, FITSIO_ANY_HDU, extname);
+  if (fitsio_is_handle(src)) {
+    fh = unref(src);
+    if (is_void(hdu)) {
+      hdutype = fitsio_get_hdu_type(fh);
+    } else if (is_scalar(hdu) && is_integer(hdu)) {
+      hdutype = fitsio_movabs_hdu(fh, hdu);
+    } else if (is_scalar(hdu) && is_string(hdu)) {
+      hdutype = fitsio_movnam_hdu(fh, FITSIO_ANY_HDU, extname);
+    } else {
+      error, "invalid HDU keyword";
+    }
+  } else if (is_scalar(src) && is_string(src)) {
+    if (is_void(hdu)) {
+      fh = fitsio_open_data(src);
+      hdutype = fitsio_get_hdu_type(fh);
+    } else if (is_scalar(hdu) && is_integer(hdu)) {
+      fh = fitsio_open_file(src, basic=1n);
+      hdutype = fitsio_movabs_hdu(fh, hdu);
+    } else if (is_scalar(hdu) && is_string(hdu)) {
+      fh = fitsio_open_file(src, basic=1n);
+      hdutype = fitsio_movnam_hdu(fh, FITSIO_ANY_HDU, extname);
+    } else {
+      error, "invalid HDU keyword";
+    }
   } else {
-    error, "invalid HDU keyword";
+    error, "expecting a file name or a FITS handle";
   }
-  if (hdutype == FITSIO_IMAGE) {
+  if (hdutype == FITSIO_IMAGE_HDU) {
     return fitsio_read_img(fh);
   } else if (hdutype == FITSIO_BINARY_TBL || hdutype == FITSIO_ASCII_TBL) {
     return fitsio_read_tbl(fh, hashtable=hashtable, case=case, units=units);
@@ -70,11 +90,12 @@ func fitsio_read_file(path, hdu=, basic=, hashtable=, units=, case=)
   }
 }
 
-func fitsio_load_file(path, hashtable=, case=, units=, comment=)
-/* DOCUMENT obj = fitsio_load_file(path);
+func fitsio_read_all(src, hashtable=, case=, units=, comment=)
+/* DOCUMENT obj = fitsio_read_all(src);
 
-     Load  all the  contents of  a FITS  file into  a structured  object whose
-     members are:
+     Load all the contents of a  FITS file into a structured object.  Argument
+     SRC can  be a file name  or a FITS  handle.  The members of  the returned
+     object are:
 
         obj.hduN.header  = header for HDU number N
         obj.hduN.data    = data for HDU number N
@@ -108,7 +129,7 @@ func fitsio_load_file(path, hashtable=, case=, units=, comment=)
 
 
    SEE ALSO: fitsio_open_file, fitsio_read_img, fitsio_read_tbl,
-             fitsio_load_file.
+             fitsio_read_all.
  */
 {
   convert = (case ? (case > 0 ? fitsio_strupper : fitsio_strlower) : noop);
@@ -121,10 +142,10 @@ func fitsio_load_file(path, hashtable=, case=, units=, comment=)
     add = save;
   }
   obj = create();
-  if (fitsio_is_handle(path)) {
-    fh = unref(path);
-  } else if (is_string(path) && is_scalar(path)) {
-    fh = fitsio_open_file(path);
+  if (fitsio_is_handle(src)) {
+    fh = unref(src);
+  } else if (is_string(src) && is_scalar(src)) {
+    fh = fitsio_open_file(src);
   }
   nhdus = fitsio_get_num_hdus(fh);
   for (hdu = 1; hdu <= nhdus; ++hdu) {
