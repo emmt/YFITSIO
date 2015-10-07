@@ -265,7 +265,7 @@ func fitsio_read_header(fh, hashtable=, case=, units=, comment=)
   nkeys = fitsio_get_num_keys(fh);
   null = string(0);
   for (k = 1; k <= nkeys; ++k) {
-    card = fitsio_read_card(fh, k); /* FIXME: split card */
+    card = fitsio_split_card(fitsio_read_card(fh, k));
     key = fitsio_get_keyword(card);
     name = convert(key);
     value = fitsio_get_value(card);
