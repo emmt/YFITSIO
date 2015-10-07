@@ -1335,6 +1335,11 @@ Y_fitsio_read_img(int argc)
       /* Positional argument. */
       if (fptr == NULL) {
         fptr = fetch_fitsfile(iarg, NOT_CLOSED|CRITICAL);
+      } else if (null_index < 0) {
+        null_index = yget_ref(iarg);
+        if (null_index < 0) {
+          y_error("argument NULL must be set with a simple variable");
+        }
       } else {
         y_error("too many arguments");
       }
@@ -1353,12 +1358,6 @@ Y_fitsio_read_img(int argc)
      } else if (index == index_of_number) {
         number_iarg = iarg;
         mode |= 8;
-      } else if (index == index_of_null) {
-        null_index = yget_ref(iarg);
-        fprintf(stderr, "null_index = %ld (iarg = %d)\n", null_index, iarg);
-        if (null_index < 0) {
-          y_error("keyword NULL must be set with a simple variable");
-        }
       } else {
         y_error("unsupported keyword");
       }
@@ -1488,7 +1487,7 @@ Y_fitsio_read_img(int argc)
   }
 
   /* Save the 'null' value. */
-  if (null_index != -1) {
+  if (null_index >= 0) {
     if (anynull == 0) {
       ypush_nil();
     } else {
