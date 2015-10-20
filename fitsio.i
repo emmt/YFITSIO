@@ -299,18 +299,18 @@ func fitsio_read_header(fh, hashtable=, case=, units=, comment=)
       add, obj, noop(name), value;
     } else {
       /* Non-commentary keyword. */
-      local units;
-      comment = fitsio_get_comment(card, units);
+      local units_value;
+      comment_value = fitsio_get_comment(card, units_value);
       comment_name = name + comment;
       units_name = name + units;
       if (exists(obj, name)) {
         value = grow(obj(noop(name)), value);
-        comment_value = grow(obj(noop(comment_name)), comment);
-        units_value = grow(obj(noop(units_name)), units);
+        comment_value = grow(obj(noop(comment_name)), comment_value);
+        units_value = grow(obj(noop(units_name)), units_value);
       }
       add, obj, noop(name), value,
-        noop(comment_name), comment,
-        noop(units_name), units;
+        noop(comment_name), comment_value,
+        noop(units_name), units_value;
     }
   }
   fitsio_read_card, fh, 0;
