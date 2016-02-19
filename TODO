@@ -1,0 +1,50 @@
+fits_get_num_keys(fh)
+  Return number of existing keywords (not counting the END keyword).
+  (fits_get_hdrspace)
+
+card = fits_read_card(fh, key)
+  KEY can be a string (fits_read_card) or a number (fits_read_record)
+  If KEY=0
+
+[key,val,com] = fits_read_key(fh, key)
+   idem but result is split in 3 strings (keyword, value, comment)
+   (fits_read_keyword/fits_read_keyn)
+
+fits_get_key_unit(fh, key)
+   (fits_read_key_unit)
+
+fits_get_key_value(fh, key)  / fits_get_key_value([key,val,com])
+fits_get_key_comment(fh, key) / fits_get_key_comment([key,val,com])
+
+
+fits_get_key_type(fh, key)
+  FITS_KEY_STRING,
+  FITS_KEY_LOGICAL,
+  FITS_KEY_INTEGER,
+  FITS_KEY_REAL,
+  FITS_KEY_COMPLEX,
+  FITS_KEY_COMMENT,
+  FITS_KEY_BLANK
+
+
+fits_rename_key, fh, oldkey, newkey;
+   (fits_modify_name)
+
+fits_write_key, fh, key, value, comment;
+
+fits_delete_key, fh, key;
+   fits_delete_record/fits_delete_key/fits_delete_str
+
+
+  /* parse logical */
+  int ffc2l(const char *cval, int *lval, int *status);
+
+  /* convert formatted string to a double value, doing implicit datatype
+     conversion if necessary. */
+
+  int ffc2d(const char *cval, double *dval, int *status);
+
+  /* convert formatted string to an integer value, doing implicit datatype
+     conversion if necessary. */
+  int ffc2i(const char *cval, long *ival, int *status);
+
