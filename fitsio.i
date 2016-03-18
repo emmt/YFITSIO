@@ -5,7 +5,7 @@
  *
  *-----------------------------------------------------------------------------
  *
- * Copyright (C) 2015: Éric Thiébaut <eric.thiebaut@univ-lyon1.fr>
+ * Copyright (C) 2015-2016 Éric Thiébaut <eric.thiebaut@univ-lyon1.fr>
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the Free
@@ -1152,14 +1152,3 @@ extern fitsio_setup;
    SEE ALSO: fitsio_open_file.
  */
 fitsio_setup;
-
-/*
- * Local Variables:
- * mode: Yorick
- * tab-width: 8
- * c-basic-offset: 2
- * indent-tabs-mode: nil
- * fill-column: 78
- * coding: utf-8
- * End:
- */

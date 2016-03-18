@@ -5,7 +5,7 @@
  *
  *-----------------------------------------------------------------------------
  *
- * Copyright (C) 2015: Éric Thiébaut <eric.thiebaut@univ-lyon1.fr>
+ * Copyright (C) 2015-2016 Éric Thiébaut <eric.thiebaut@univ-lyon1.fr>
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the Free
@@ -2903,15 +2903,3 @@ get_image_param(fitsfile* fptr, int maxdims, int* bitpix_ptr,
   }
   return *status;
 }
-
-/*
- * Local Variables:
- * mode: C
- * c-basic-offset: 2
- * tab-width: 8
- * indent-tabs-mode: nil
- * fill-column: 79
- * coding: utf-8
- * ispell-local-dictionary: "american"
- * End:
- */
