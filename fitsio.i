@@ -1042,7 +1042,7 @@ extern fitsio_read_col;
       the column COL  of the ASCII or  binary table of the current  HDU of the
       FITS  handle FH.   Argument COL  can be  an integer  (the column  number
       starting at  1) or a  string (the  column name).  If  optional argument,
-      FIRSTROW  is given  it specifies  the first  row to  write (by  default,
+      FIRSTROW  is given, it specifies  the first  row to  write (by  default,
       FIRSTROW is 1).  The dimensions of  ARR must be consistent with those of
       a cell of  the column (given by  the value of the "TDIM"  keyword of the
       column): if the cell is a scalar, then  ARR must be a scalar or a vector
@@ -1065,6 +1065,9 @@ extern fitsio_read_col;
       are stored in  a table, they are converted into  a larger signed integer
       type if possible (e.g., `TUSHORT` as `int`).  Logical values are read as
       chars.
+
+      Keyword `null`  can be used to  specify the value of  invalid data. This
+      value will be substituted by the appropriate FITS null value.
 
 
    SEE ALSO: fits_create_tbl, fits_open_table.
