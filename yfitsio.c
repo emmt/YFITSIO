@@ -1320,6 +1320,8 @@ Y_fitsio_read_img(int argc)
   long null_index;
   int naxis, bitpix, status, mode, datatype, anynull;
   int iarg, first_iarg, last_iarg, incr_iarg, number_iarg;
+  int eltype;
+  size_t elsize;
 
   /* Parse arguments. */
   null_index = -1;
@@ -1419,7 +1421,7 @@ Y_fitsio_read_img(int argc)
       dims[k+1] = (lpix[k] - fpix[k] + 1)/ipix[k];
     }
     dims[0] = naxis;
-    first = number = 0; /* avoid warnings aboutn uninitialized variables */
+    first = number = 0; /* avoid warnings about uninitialized variables */
   } else if (mode == 9) {
     /* Read flat sub-array. */
     first = ygets_l(first_iarg);
@@ -1441,38 +1443,57 @@ Y_fitsio_read_img(int argc)
   if (fits_get_img_equivtype(fptr, &bitpix, &status)) {
     yfits_error(status);
   }
-  arr = NULL;
-  datatype = -1;
-  if (bitpix > 0) {
-    if (bitpix == 8*sizeof(unsigned char)) {
-      datatype = TBYTE;
-      null.type = Y_CHAR;
-      arr = ypush_c(dims);
-    } else if (bitpix == 8*sizeof(short)) {
-      datatype = TSHORT;
-      null.type = Y_SHORT;
-      arr = ypush_s(dims);
-    } else if (bitpix == 8*sizeof(int)) {
-      datatype = TINT;
-      null.type = Y_INT;
-      arr = ypush_i(dims);
-    } else if (bitpix == 8*sizeof(long)) {
-      datatype = (sizeof(long long) == sizeof(long) ? TLONGLONG : TLONG);
-      null.type = Y_LONG;
-      arr = ypush_l(dims);
-    }
+  if (bitpix == BYTE_IMG) {
+    elsize = 1;
+    eltype = 0;
+  } else if (bitpix == SBYTE_IMG || bitpix == SHORT_IMG) {
+    elsize = 2;
+    eltype = 1;
+  } else if (bitpix == USHORT_IMG || bitpix == LONG_IMG) {
+    elsize = 4;
+    eltype = 1;
+  } else if (bitpix == ULONG_IMG || bitpix == LONGLONG_IMG) {
+    elsize = 8;
+    eltype = 1;
+  } else if (bitpix == FLOAT_IMG) {
+    elsize = sizeof(float);
+    eltype = 2;
+  } else if (bitpix == DOUBLE_IMG) {
+    elsize = sizeof(double);
+    eltype = 2;
   } else {
-    if (bitpix == -8*sizeof(float)) {
-      datatype = TFLOAT;
-      null.type = Y_FLOAT;
-      arr = ypush_f(dims);
-    } else if (bitpix == -8*sizeof(double)) {
-      datatype = TDOUBLE;
-      null.type = Y_DOUBLE;
-      arr = ypush_d(dims);
-    }
+    eltype = 0;
+    elsize = 0;
   }
-  if (arr == NULL) y_error("unsupported data type");
+  if (elsize <= sizeof(char) && eltype == 0) {
+    datatype = TBYTE;
+    null.type = Y_CHAR;
+    arr = ypush_c(dims);
+  } else if (elsize <= sizeof(short) && eltype == 1) {
+    datatype = TSHORT;
+    null.type = Y_SHORT;
+    arr = ypush_s(dims);
+  } else if (elsize <= sizeof(int) && eltype == 1) {
+    datatype = TINT;
+    null.type = Y_INT;
+    arr = ypush_i(dims);
+  } else if (elsize <= sizeof(long) && eltype == 1) {
+    datatype = TLONG;
+    null.type = Y_LONG;
+    arr = ypush_l(dims);
+  } else if (elsize <= sizeof(float) && eltype == 2) {
+    datatype = TFLOAT;
+    null.type = Y_FLOAT;
+    arr = ypush_f(dims);
+  } else if (elsize <= sizeof(double) && eltype == 2) {
+    datatype = TDOUBLE;
+    null.type = Y_DOUBLE;
+    arr = ypush_d(dims);
+  } else {
+    datatype = -1;
+    arr = NULL;
+    y_error("unsupported data type");
+  }
 
   /* Read the data. */
   if (mode == 0 || mode == 9) {
