@@ -1,6 +1,6 @@
 The YFITSIO plug-in is licensed under the GNU-GPL License:
 
-> Copyright (C) 2015: Éric Thiébaut <eric.thiebaut@univ-lyon1.fr>
+> Copyright (C) 2015-2018: Éric Thiébaut (https://github.com/emmt/YFITSIO).
 >
 >
 >                     GNU GENERAL PUBLIC LICENSE

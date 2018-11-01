@@ -5,7 +5,7 @@
  *
  *-----------------------------------------------------------------------------
  *
- * Copyright (C) 2015-2016 Éric Thiébaut <eric.thiebaut@univ-lyon1.fr>
+ * Copyright (C) 2015-2018 Éric Thiébaut (https://github.com/emmt/YFITSIO).
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the Free
@@ -43,7 +43,7 @@ func fitsio_read_data(src, hdu=, hashtable=, units=, case=)
      is set, the extended  file name syntax is not used  to interpret SRC when
      it is a file name.
 
-     Keywords HASHTABLE, UNITS, and CASE  are passed to `fitsio_read_tbl` if
+     Keywords HASHTABLE,  UNITS, and CASE  are passed to  `fitsio_read_tbl` if
      the HDU to be read is a FITS table.
 
      The function `fitsio_read_all` can be used  to load all the contents of a
@@ -109,7 +109,7 @@ func fitsio_read_all(src, hashtable=, case=, units=, comment=)
         obj.hdu2.header("BITPIX.comment") = associated comment;
 
      For image extensions, the data part is  simply an array (or [] if empty).
-     Fot table extensions, the data part  isstored as a structured object (see
+     Fot table extensions, the data part is stored as a structured object (see
      `fitsio_read_tbl`), for instance:
 
         obj.hdu2.data.FOO            = value of the "FOO" column;

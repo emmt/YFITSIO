@@ -5,7 +5,7 @@
  *
  *-----------------------------------------------------------------------------
  *
- * Copyright (C) 2015-2016 Éric Thiébaut <eric.thiebaut@univ-lyon1.fr>
+ * Copyright (C) 2015-2018 Éric Thiébaut (https://github.com/emmt/YFITSIO).
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the Free
